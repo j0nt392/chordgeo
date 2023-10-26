@@ -7,7 +7,6 @@ import matplotlib.patches as patches
 import re
 import math
 
-
 def draw_chr_circle(chord):
     # Define the notes and their positions
     notes = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#']
@@ -45,57 +44,30 @@ def draw_chr_circle(chord):
 
     plt.show()
 
-def apply_window(audio_signal, window_type):
-    if window_type == 'hamming':
-        window = np.hamming(len(audio_signal))
-    elif window_type == 'hanning':
-        window = np.hanning(len(audio_signal))
-    elif window_type == 'blackman':
-        window = np.blackman(len(audio_signal))
-    else:
-        raise ValueError("Unsupported window type")
-
-    windowed_signal = audio_signal * window
-    return windowed_signal
-
 def get_hz():
     chord, fs = librosa.load('Training\Am\Am_acousticguitar_Mari_1.wav', sr=None)
-    windowed_chord = apply_window(chord, 'blackman')
-    spectrum = np.fft.fft(windowed_chord)
 
-    frequencies = np.fft.fftfreq(len(spectrum), d=1/fs)  # Notice the addition of the d parameter
+    # Compute chroma features
+    chroma = librosa.feature.chroma_stft(y=chord, sr=fs)
 
-    # get magnitude spectrum (ignoring negative frequency values)
-    magnitude = np.abs(spectrum[frequencies > 0])
+    # Compute chromagram (if needed)
+    chromagram = librosa.feature.chroma_cens(y=chord, sr=fs)
 
-    # Get indices of top 5 dominant frequencies
-    top_indices = np.argsort(magnitude)[-30:][::-1]
-    dominant_frequencies = frequencies[top_indices]
+    # Sum the chromagram to get the pitch content
+    pitch_sum = chromagram.sum(axis=1)
 
-    return dominant_frequencies
+    # Define the mapping of pitch classes to note names
+    pitch_classes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
-def clean_frequencies(frequencies:list):
-    #round the numbers
-    cleaned = []
-    for f in frequencies:
-        cleaned.append(round(f))
-    
-    #remove duplicates 
-    shorter_list = list(set(cleaned))
+    # Find the pitches with the highest energy
+    top_pitches = []
+    for _ in range(3):  # You want to find the top 3 pitches
+        max_pitch = pitch_classes[pitch_sum.argmax()]
+        top_pitches.append(max_pitch)
+        pitch_sum[pitch_sum.argmax()] = 0  # Set the maximum value to 0 to find the next maximum
 
-    #group frequencies
-    threshold = 1.5
-    sorted_freqs = sorted(shorter_list)
-    groups = [[sorted_freqs[0]]]
-    
-    for f in sorted_freqs[1:]:
-        if f - groups[-1][-1] <= threshold:
-            groups[-1].append(f)
-        else:
-            groups.append([f])
-    
-    # Return the first frequency of each group as the representative
-    return [group[0] for group in groups]
+    print(f"Pitches in the audio: {', '.join(top_pitches)}")
+
 
 def map_frequencies(frequencies:list):
     notes = {
@@ -155,19 +127,7 @@ def map_frequencies(frequencies:list):
     return chord_notes
 
 def main():
-    #get top dominant frequencies and return Hz values for each
-    frequencies = get_hz()
-    #clean up frequencies (group similar ones and delete duplicates)
-    clean_f = clean_frequencies(frequencies)
-
-    # #map frequencies to notes. (440hz = A)
-    chord = map_frequencies(clean_f)
-    print(chord)
-
-    #print(chord)
-   # draw_chr_circle(chord)
-    draw_chr_circle(chord)
-
+    get_hz()
 
 if __name__ == ("__main__"):
     main()
