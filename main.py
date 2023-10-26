@@ -1,13 +1,70 @@
-import os
 import librosa
 import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
 import joblib
+from sklearn.preprocessing import LabelEncoder
+import numpy as np
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
-# Define a function to extract features from an audio file
+def get_notes_for_chord(chord):
+    
+    chord_notes_mapping = {
+    'Am': ['A', 'C', 'E'],
+    'Bb': ['Bb', 'D', 'F'],
+    'Bdim': ['B', 'D', 'F'],
+    'C': ['C', 'E', 'G'],
+    'Dm': ['D', 'F', 'A'],
+    'Em': ['E', 'G', 'B'],
+    'F': ['F', 'A', 'C'],
+    'G': ['G', 'B', 'D']
+    # Add more chord names and their corresponding notes here
+    }
+    if chord in chord_notes_mapping:
+        # Get the list of notes corresponding to the chord
+        chord_notes = chord_notes_mapping[chord]
+        
+        # Return the first three notes from the list (or fewer if there are less than three)
+        return chord_notes[:3]
+    else:
+        # Handle the case when the chord is not in the dictionary
+        return []
+
+def draw_chr_circle(chord):
+    # Define the notes and their positions
+    notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
+    num_notes = len(notes)
+    theta = np.linspace(0, 2*np.pi, num_notes, endpoint=False)
+    x = np.cos(theta)
+    y = np.sin(theta)
+
+    # Create a figure and axis
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_aspect('equal', 'box')
+
+    # Plot the chromatic circle
+    ax.plot(x, y, color='gray')  # Circle
+    for i, note in enumerate(notes):
+        ax.text(x[i]*1.1, y[i]*1.1, note, ha='center', va='center')
+
+    for i in range(num_notes):
+        start_idx = i
+        end_idx = (i+1) % num_notes  # This ensures that after the last note, we loop back to the first note
+        ax.plot([x[start_idx], x[end_idx]], [y[start_idx], y[end_idx]], color='gray')
+
+    for i in range(len(chord)):
+        start_note = chord[i]
+        end_note = chord[(i+1) % len(chord)]  # wrap around to create the last segment
+        start_idx = notes.index(start_note)
+        end_idx = notes.index(end_note)
+        ax.plot([x[start_idx], x[end_idx]], [y[start_idx], y[end_idx]], 'r-')
+
+    # Some additional formatting
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.5, 1.5)
+    ax.axis('off')
+    plt.show()
+
 def extract_features(audio_file):
     chord, fs = librosa.load(audio_file, sr=None)
     chord_emphasized = librosa.effects.preemphasis(chord, coef=0.97)
@@ -15,50 +72,34 @@ def extract_features(audio_file):
     pitch_sum = chromagram.sum(axis=1)
     return pitch_sum
 
-# Define the paths to your "train" and "test" directories
-train_data_dir = "Training"
-test_data_dir = "Test"
+# Define a function to predict the chord for a new audio file
+def predict_new_chord(audio_file_path, model, label_encoder):
+    # Extract features from the new audio file
+    feature_vector = extract_features(audio_file_path)
 
-# Initialize empty lists to store features and labels
-features = []
-labels = []
+    # Reshape the feature vector to match the model's input shape
+    feature_vector = feature_vector.reshape(1, -1)
 
-# Iterate through the training data
-for root, dirs, files in os.walk(train_data_dir):
-    for file in files:
-        if file.endswith(".wav"):
-            # Extract features from the audio file
-            feature_vector = extract_features(os.path.join(root, file))
-            # Append the feature vector to the features list
-            features.append(feature_vector)
-            # Extract the chord label from the subfolder name
-            label = os.path.basename(os.path.dirname(os.path.join(root, file)))
-            labels.append(label)
+    # Use the trained model to make a prediction
+    predicted_label = model.predict(feature_vector)
 
-# Encode chord labels to numerical values
-label_encoder = LabelEncoder()
-encoded_labels = label_encoder.fit_transform(labels)
+    # Decode the predicted label to get the chord name
+    predicted_chord = label_encoder.inverse_transform(predicted_label)
 
-# Split the data into training and testing sets
-X_train, X_test, y_train, y_test = train_test_split(features, encoded_labels, test_size=0.2, random_state=42)
+    return predicted_chord[0]
 
-# Train a machine learning model (Random Forest in this example)
-model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
+def main():
+    
+    # Load the trained model and label encoder
+    model = joblib.load('chord_identifier.pkl')
+    label_encoder = joblib.load('label_encoder.pkl')
 
-# Make predictions on the test set
-y_pred = model.predict(X_test)
+    # Example: Predict the chord for a new audio file
+    new_audio_file_path = 'Test\Dm\Dm_AcousticGuitar_RodrigoMercador_2.wav'
+    
+    predicted_chord = predict_new_chord(new_audio_file_path, model, label_encoder)
+    print(f"Predicted Chord for the new audio file: {predicted_chord}")
+    draw_chr_circle(get_notes_for_chord(predicted_chord))
 
-# Decode the predicted labels
-predicted_labels = label_encoder.inverse_transform(y_pred)
-
-# Calculate the accuracy
-accuracy = accuracy_score(y_test, y_pred)
-print(f"Accuracy: {accuracy * 100:.2f}%")
-
-# Print actual chord labels and their corresponding notes
-actual_chords = label_encoder.inverse_transform(y_test)
-for actual_chord, predicted_chord in zip(actual_chords, predicted_labels):
-    print(f"Actual Chord: {actual_chord}, Predicted Chord: {predicted_chord}")
-
-joblib.dump(model, 'chord_identifier.pkl')
+if __name__ == "__main__":
+    main()

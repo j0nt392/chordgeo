@@ -1,10 +1,7 @@
-import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-
 def draw_chr_circle(chord):
     # Define the notes and their positions
-    notes = ['A', 'A#', 'B', 'C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#']
+    notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+
     num_notes = len(notes)
     theta = np.linspace(0, 2*np.pi, num_notes, endpoint=False)
     x = np.cos(theta)
