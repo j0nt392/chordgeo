@@ -3,22 +3,26 @@ from kivy.uix.widget import Widget
 from kivy.uix.label import Label
 from kivy.graphics import Color, Line, Ellipse
 from kivy.core.window import Window
-from kivy.animation import Animation
+from kivy.clock import Clock
+
+import threading
 import numpy as np
 
 # Set the window size
-Window.size = (360, 640)  # width x height
-
-# Optional: Disable window resizing
+Window.size = (360, 640)
 Window.resizable = True
 
 class ChordCircle(Widget):
-    def __init__(self, chord, **kwargs):
+    def __init__(self, **kwargs):
         super(ChordCircle, self).__init__(**kwargs)
-        self.chord = chord
+        self.center_x = round(Window.width * 0.23)
+        self.center_y = round(Window.height - 300)
+        self.chord = []
         self.draw_chr_circle()
 
     def draw_chr_circle(self):
+        self.canvas.clear()
+        self.clear_widgets()
         # Define the notes and their positions
         center_x = round(Window.width * 0.23)
         center_y = round(Window.height - 300)
@@ -54,46 +58,24 @@ class ChordCircle(Widget):
                 note_label = Label(text=note, center=(round(x[i]), round(y[i])), font_size=12, color=(0, 0, 0, 1))
                 self.add_widget(note_label)
 
+    def update_chord(self, chord):
+        self.chord = chord
+        self.draw_chr_circle()
+
 class MyApp(App):
     def build(self):
-        return ChordCircle(chord=['D#', 'G', 'B'])  # Example chord
+        self.continue_input = True
+        self.circle = ChordCircle()
+        threading.Thread(target=self.update_loop).start()
+        return self.circle
 
+    def update_loop(self):
+        while self.continue_input:
+            user_input = input("Enter notes separated by commas (e.g. C,D#,G): ")
+            chord = [note.strip() for note in user_input.split(',')]
+            Clock.schedule_once(lambda dt: self.circle.update_chord(chord))
+
+    def on_stop(self):
+        self.continue_input = False
 if __name__ == '__main__':
     MyApp().run()
-
-
-def draw_chr_circle(chord):
-    # Define the notes and their positions
-    notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-
-    num_notes = len(notes)
-    theta = np.linspace(0, 2*np.pi, num_notes, endpoint=False)
-    x = np.cos(theta)
-    y = np.sin(theta)
-
-    # Create a figure and axis
-    fig, ax = plt.subplots(figsize=(8, 8))
-    ax.set_aspect('equal', 'box')
-
-    # Plot the chromatic circle
-    ax.plot(x, y, color='gray')  # Circle
-    for i, note in enumerate(notes):
-        ax.text(x[i]*1.1, y[i]*1.1, note, ha='center', va='center')
-
-    for i in range(num_notes):
-        start_idx = i
-        end_idx = (i+1) % num_notes  # This ensures that after the last note, we loop back to the first note
-        ax.plot([x[start_idx], x[end_idx]], [y[start_idx], y[end_idx]], color='gray')
-
-    for i in range(len(chord)):
-        start_note = chord[i]
-        end_note = chord[(i+1) % len(chord)]  # wrap around to create the last segment
-        start_idx = notes.index(start_note)
-        end_idx = notes.index(end_note)
-        ax.plot([x[start_idx], x[end_idx]], [y[start_idx], y[end_idx]], 'r-')
-
-    # Some additional formatting
-    ax.set_xlim(-1.5, 1.5)
-    ax.set_ylim(-1.5, 1.5)
-    ax.axis('off')
-    plt.show()

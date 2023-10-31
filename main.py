@@ -72,6 +72,11 @@ class Chord_classifier():
         return predicted_chord[0]
 
 class ChordCircle(Widget):
+    center_x = Window.width * 0.23
+    center_y = Window.height - 300
+    radius = min(Window.width, Window.height) * 0.25 - 20  # Deduct 20 to account for the small circles
+
+
     def __init__(self, chord, **kwargs):
         super(ChordCircle, self).__init__(**kwargs)
         self.chord = chord or []
@@ -85,18 +90,15 @@ class ChordCircle(Widget):
     def draw_chr_circle(self):
         # Define the notes and their positions
         self.canvas.clear()
-        center_x = round(Window.width * 0.23)
-        center_y = round(Window.height - 300)
         notes = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
         num_notes = len(notes)
         theta = np.linspace(0, 2*np.pi, num_notes, endpoint=False)
-        radius = min(Window.width, Window.height) * 0.25 - 20  # Deduct 20 to account for the small circles
-        x = np.cos(theta) * radius + center_x
-        y = np.sin(theta) * radius + center_y
+        x = np.cos(theta) * self.radius + self.center_x
+        y = np.sin(theta) * self.radius + self.center_y
 
         with self.canvas:
             Color(0.5, 0.5, 0.5)
-            Line(circle=(center_x, center_y, radius))
+            Line(circle=(self.center_x, self.center_y, self.radius))
             for i, note in enumerate(notes):
                 Line(points=[x[i], y[i], x[(i+1) % num_notes], y[(i+1) % num_notes]])
 
@@ -121,7 +123,7 @@ class ChordCircle(Widget):
 
 class MyApp(App):
     sample_rate = 44100
-
+    chord = ['C','E','G']
     def build(self):
         # Load the trained model and label encoder
         self.model = joblib.load('chord_identifier.pkl')
@@ -137,8 +139,8 @@ class MyApp(App):
         record_button.bind(on_press=self.record_chord)
         
         # Create a ChordCircle widget with a default chord and add it to the layout
-        initial_chord = ['C', 'E', 'G']  # Example initial chord
-        self.chord_circle = ChordCircle(chord=initial_chord, size_hint=(1, 1))
+        
+        self.chord_circle = ChordCircle(chord=self.chord, size_hint=(1, 1))
         
         self.main_layout.add_widget(self.chord_circle)
         self.main_layout.add_widget(record_button)
@@ -167,6 +169,11 @@ class MyApp(App):
             # Save the recorded audio to a WAV file
             if self.recorded_audio is not None:
                 wavfile.write('recorded_chord.wav', self.sample_rate, self.recorded_audio)
+                chord_from_audio = self.classifier.predict_new_chord('recorded_chord.wav',self.model, self.label_encoder)
+                notes = self.classifier.get_notes_for_chord(chord_from_audio)
+                self.chord = notes
+                self.chord_circle.update_chord(self.chord)
+
                 
 
 if __name__ == '__main__':
