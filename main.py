@@ -76,7 +76,6 @@ class ChordCircle(Widget):
     center_y = Window.height - 300
     radius = min(Window.width, Window.height) * 0.25 - 20  # Deduct 20 to account for the small circles
 
-
     def __init__(self, chord, **kwargs):
         super(ChordCircle, self).__init__(**kwargs)
         self.chord = chord or []
@@ -84,7 +83,7 @@ class ChordCircle(Widget):
 
     def update_chord(self, new_chord):
         self.chord = new_chord
-        self.canvas.clear()
+        #self.canvas.clear()
         self.draw_chr_circle()
 
     def draw_chr_circle(self):
@@ -173,8 +172,6 @@ class MyApp(App):
                 notes = self.classifier.get_notes_for_chord(chord_from_audio)
                 self.chord = notes
                 self.chord_circle.update_chord(self.chord)
-
-                
 
 if __name__ == '__main__':
     MyApp().run()
