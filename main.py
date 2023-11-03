@@ -1,5 +1,8 @@
 from kivymd.app import MDApp
 from kivymd.uix.button import MDRoundFlatButton, MDFloatingActionButton
+from kivymd.uix.boxlayout import MDBoxLayout
+from kivymd.uix.button import MDIconButton
+
 from kivy.app import App
 from kivy.uix.widget import Widget
 from kivy.uix.anchorlayout import AnchorLayout
@@ -86,6 +89,14 @@ class ChordCircle(Widget):
         super(ChordCircle, self).__init__(**kwargs)
         self.chords_history = [chord]
         self.overlay_enabled = overlay_mode
+        self.toggle = False
+        self.toggled_chord = ""
+        self.draw_chr_circle()
+    
+    def highlight_shape(self, chord):
+        self.toggle = True
+        self.toggled_chord = chord
+        self.canvas.clear()
         self.draw_chr_circle()
 
     def update_chord(self, new_chord):
@@ -110,8 +121,17 @@ class ChordCircle(Widget):
             for i, note in enumerate(notes):
                 Line(points=[x[i], y[i], x[(i+1) % num_notes], y[(i+1) % num_notes]])
 
-            for chord in self.chords_history:
-                Color(0.5, 0.5, 0.5)
+            for idx, chord in enumerate(self.chords_history):
+                # Check if the current chord is the last one (most recent) in the history
+                if idx == len(self.chords_history) - 1 and self.toggle == False:  # Most recent chord
+                    Color(0, 0, 0)  # Example: Make it red for visibility. Adjust as per your design preference.
+                    line_width = 3  # Thicker line for the most recent chord
+                elif self.toggle == True and chord == self.toggled_chord:
+                    Color(0,0,0)    # Make the line black if the user scrolls through his shapes.
+                    line_width = 3
+                else:
+                    Color(0.7, 0.7, 0.7)  # Your previous gray color for older chords
+                    line_width = 1  # Regular line width for older chords
                 for i in range(len(chord)):
                     start_note = chord[i]
                     end_note = chord[(i+1) % len(chord)]
@@ -131,56 +151,89 @@ class ChordCircle(Widget):
 class MyApp(MDApp):
     sample_rate = 44100
     chord = ['D#','B','G']
+    chord_history = ['C#']
+    current_chord_index = 0
+    # Load the trained model and label encoder
+    model = joblib.load('chord_identifier.pkl')
+    label_encoder = joblib.load('label_encoder.pkl')
+    classifier = Chord_classifier(model, label_encoder)
+    
     def build(self):
-        # Load the trained model and label encoder
-        self.model = joblib.load('chord_identifier.pkl')
-        self.label_encoder = joblib.load('label_encoder.pkl')
-        self.classifier = Chord_classifier(self.model, self.label_encoder)
         self.overlay_mode = False
-        self.theme_cls.primary_palette = "Blue"  # use the color you prefer
-        self.theme_cls.accent_palette = "Red"
-        
         # Create the main layout
-        self.main_layout = BoxLayout(orientation='vertical', spacing=10, padding=[0, 20, 0, 20])
+        self.main_layout = BoxLayout(orientation='vertical', spacing=10, padding=[0, 0, 0, 20])
         self.main_layout.bind(minimum_size=self.main_layout.setter('size'))
-
         button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=50, spacing=10, padding=10)
-
+        button_layout.add_widget(Widget())  # Empty widget to take up space
         # Create a header and add it to the main layout
-        header = BoxLayout(size_hint_y=None, height=50)
-
+        header = MDBoxLayout(size_hint_y=None, height=50, md_bg_color=(0.106,0.106,0.106))
         # Set background color for the header
         with header.canvas.before:
             Color(0, 0, 0, 0)  # RGBA, for green color in this case
             self.rect = Rectangle(size=header.size, pos=header.pos)
-
         # Update the Rectangle size and position whenever the header size or position changes
         header.bind(size=self.update_rect, pos=self.update_rect)
-        title = Label(text='SoundShapes', color="black")
+        title = Label(text='SoundShapes', color="white")
         header.add_widget(title)
 
         # Create a ChordCircle widget with a default chord and add it to the layout
         self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, size_hint=(1, 0.3))
 
+        #Chord-name
+        self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
+        self.chord_name = Label(text=self.chord_history[0], color="black")
+
+        # Before your toggle_button, let's add the left arrow button
+        left_arrow_button = MDIconButton(icon="arrow-left", md_bg_color=(1,1,1),pos_hint={'center_y': 0.5})
+        left_arrow_button.bind(on_press=self.scroll_previous_chord)  
+        # After your record_button, let's add the right arrow button
+        right_arrow_button = MDIconButton(icon="arrow-right", md_bg_color=(1,1,1),pos_hint={'center_y': 0.5})
+        right_arrow_button.bind(on_press=self.scroll_next_chord)  
+
+        self.chord_info.add_widget(Widget())
+        self.chord_info.add_widget(Widget())
+        self.chord_info.add_widget(left_arrow_button)
+        self.chord_info.add_widget(self.chord_name)
+        self.chord_info.add_widget(right_arrow_button)
+        self.chord_info.add_widget(Widget())
+        self.chord_info.add_widget(Widget())
+
         # Add a toggle-button for chord-history
         toggle_button = MDFloatingActionButton(icon="layers", md_bg_color=(0.106,0.167,0.158))
         toggle_button.bind(on_press=self.toggle_overlay_mode)
         button_layout.add_widget(toggle_button)
-
         # Add a record button
         record_button = MDFloatingActionButton(icon="microphone", md_bg_color=(0.106,0.167,0.158))
         record_button.bind(on_press=self.record_chord)
         button_layout.add_widget(record_button)
+        button_layout.add_widget(Widget())  # Empty widget to take up space
 
         self.recording = False  # Flag to indicate whether recording is in progress
         self.recorded_audio = None  # To store the recorded audio data
 
         self.main_layout.add_widget(header)
+        self.main_layout.add_widget(self.chord_info)
         self.main_layout.add_widget(self.chord_circle)
-        self.main_layout.add_widget(button_layout)  # Add this at the end to be at the bottom
+        self.main_layout.add_widget(button_layout)  
 
         return self.main_layout
 
+    def scroll_previous_chord(self, instance):
+        #update label
+        self.current_chord_index -= 1
+        self.chord_name.text = self.chord_history[self.current_chord_index]
+        notes = self.classifier.get_notes_for_chord(self.chord_history[self.current_chord_index])
+        self.chord_circle.highlight_shape(notes)
+    
+    def scroll_next_chord(self, instance):
+        #update label
+        self.current_chord_index += 1
+        self.chord_name.text = self.chord_history[self.current_chord_index]
+        notes = self.classifier.get_notes_for_chord(self.chord_history[self.current_chord_index])
+        self.chord_circle.highlight_shape(notes)
+
+    def update_chord_label(self, value):
+        self.chord_name.text = value
 
     def update_rect(self, instance, value):
         self.rect.pos = instance.pos
@@ -188,7 +241,7 @@ class MyApp(MDApp):
 
     def toggle_overlay_mode(self, instance):
         self.overlay_mode = not self.overlay_mode
-        self.chord_circle.overlay_enabled = self.overlay_mode   # Update this line
+        self.chord_circle.overlay_enabled = self.overlay_mode  
         if self.overlay_mode:
             instance.icon = "layers-remove"
         else:
@@ -213,10 +266,19 @@ class MyApp(MDApp):
             # Save the recorded audio to a WAV file
             if self.recorded_audio is not None:
                 wavfile.write('recorded_chord.wav', self.sample_rate, self.recorded_audio)
+                #classify the chord
                 chord_from_audio = self.classifier.predict_new_chord('recorded_chord.wav',self.model, self.label_encoder)
+                #add label to list
+                self.chord_history.append(chord_from_audio)
+                #derive notes from chord
                 notes = self.classifier.get_notes_for_chord(chord_from_audio)
                 self.chord = notes
+                #draw lines between the notes in the circle
                 self.chord_circle.update_chord(self.chord)
+                #update label
+                self.current_chord_index += 1
+                self.update_chord_label(chord_from_audio)
+
 
 if __name__ == '__main__':
     MyApp().run()
