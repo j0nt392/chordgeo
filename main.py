@@ -2,7 +2,6 @@ from kivymd.app import MDApp
 from kivymd.uix.button import MDRoundFlatButton, MDFloatingActionButton
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.button import MDIconButton
-
 from kivy.app import App
 from kivy.uix.widget import Widget
 from kivy.uix.anchorlayout import AnchorLayout
@@ -90,6 +89,7 @@ class ChordCircle(Widget):
         self.chords_history = [chord]
         self.overlay_enabled = overlay_mode
         self.toggle = False
+        self.toggled_chord_index = None
         self.toggled_chord = ""
         self.draw_chr_circle()
     
@@ -114,6 +114,7 @@ class ChordCircle(Widget):
         theta = np.linspace(0, 2*np.pi, num_notes, endpoint=False)
         x = np.cos(theta) * self.radius + self.center_x
         y = np.sin(theta) * self.radius + self.center_y
+        highlighted_chord_idx = None
 
         with self.canvas:
             Color(0.5, 0.5, 0.5)
@@ -126,9 +127,12 @@ class ChordCircle(Widget):
                 if idx == len(self.chords_history) - 1 and self.toggle == False:  # Most recent chord
                     Color(0, 0, 0)  # Example: Make it red for visibility. Adjust as per your design preference.
                     line_width = 3  # Thicker line for the most recent chord
+                
                 elif self.toggle == True and chord == self.toggled_chord:
-                    Color(0,0,0)    # Make the line black if the user scrolls through his shapes.
-                    line_width = 3
+                    #save chord for last so highlighted chord is overlayed on top
+                    highlighted_chord_idx = idx
+                    continue
+                    
                 else:
                     Color(0.7, 0.7, 0.7)  # Your previous gray color for older chords
                     line_width = 1  # Regular line width for older chords
@@ -138,6 +142,19 @@ class ChordCircle(Widget):
                     start_idx = notes.index(start_note)
                     end_idx = notes.index(end_note)
                     Line(points=[x[start_idx], y[start_idx], x[end_idx], y[end_idx]])
+            
+            # Highlight the chord scrolled to
+            if highlighted_chord_idx is not None:
+                chord = self.chords_history[highlighted_chord_idx]
+                Color(0,0,0)
+                for i in range(len(chord)):
+                    start_note = chord[i]
+                    end_note = chord[(i+1) % len(chord)]
+                    start_idx = notes.index(start_note)
+                    end_idx = notes.index(end_note)
+                    Line(points=[x[start_idx], y[start_idx], x[end_idx], y[end_idx]])
+                self.toggle = False
+                highlighted_chord_idx = None
 
             for i, note in enumerate(notes):
                 # Drawing small circles and text labels for notes
@@ -161,20 +178,27 @@ class MyApp(MDApp):
     def build(self):
         self.overlay_mode = False
         # Create the main layout
-        self.main_layout = BoxLayout(orientation='vertical', spacing=10, padding=[0, 0, 0, 20])
+        self.main_layout = BoxLayout(orientation='vertical', spacing=0, padding=[0, 0, 0, 20])
         self.main_layout.bind(minimum_size=self.main_layout.setter('size'))
         button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=50, spacing=10, padding=10)
         button_layout.add_widget(Widget())  # Empty widget to take up space
-        # Create a header and add it to the main layout
-        header = MDBoxLayout(size_hint_y=None, height=50, md_bg_color=(0.106,0.106,0.106))
-        # Set background color for the header
-        with header.canvas.before:
-            Color(0, 0, 0, 0)  # RGBA, for green color in this case
-            self.rect = Rectangle(size=header.size, pos=header.pos)
-        # Update the Rectangle size and position whenever the header size or position changes
-        header.bind(size=self.update_rect, pos=self.update_rect)
-        title = Label(text='SoundShapes', color="white")
-        header.add_widget(title)
+
+
+        self.dropdown_visible = False
+        self.header = MDBoxLayout(size_hint_y=None, height=50, md_bg_color=(0.106,0.106,0.106))
+        header_label = Label(text='SoundShapes', size_hint_x=1, size=(Window.width, self.header.height), halign='left', valign='middle', padding=15)
+        header_label.bind(size=lambda *args: setattr(header_label, 'text_size', header_label.size))
+
+        self.menu_button = MDIconButton(icon='menu', size_hint=(None,None), pos_hint={'center_y':0.5}, theme_text_color='Custom',text_color=[1,1,1,1])
+        self.menu_button.bind(on_press=self.toggle_dropdown)
+        self.header.add_widget(header_label)
+        self.header.add_widget(self.menu_button)
+
+        self.dropdown = BoxLayout(size_hint_y=None)
+        self.dropdown.height = 0  # Initially, the dropdown is not visible.
+
+        self.main_layout.add_widget(self.header)
+        self.main_layout.add_widget(self.dropdown)
 
         # Create a ChordCircle widget with a default chord and add it to the layout
         self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, size_hint=(1, 0.3))
@@ -211,12 +235,32 @@ class MyApp(MDApp):
         self.recording = False  # Flag to indicate whether recording is in progress
         self.recorded_audio = None  # To store the recorded audio data
 
-        self.main_layout.add_widget(header)
         self.main_layout.add_widget(self.chord_info)
         self.main_layout.add_widget(self.chord_circle)
         self.main_layout.add_widget(button_layout)  
 
         return self.main_layout
+
+    def toggle_dropdown(self, instance):
+        options = ['Chromatic circle', 'Circle of fifths', 'Coltranes circle']
+        if self.dropdown_visible:
+            self.dropdown.height = 0
+            self.dropdown.clear_widgets()
+        else:
+            self.dropdown.orientation = 'vertical'
+            self.dropdown.spacing = 0
+            self.dropdown.padding = [0, 0, 0, 0]
+            
+            for i in range(len(options)):
+                btn = Button(text=f'{options[i]}', height=50, size_hint_y=None,
+                            background_normal='', background_down='', background_color=(0.106,0.106,0.106))
+                self.dropdown.add_widget(btn)
+            
+            self.dropdown.height = sum(btn.height for btn in self.dropdown.children)
+        
+        self.dropdown_visible = not self.dropdown_visible
+
+
 
     def scroll_previous_chord(self, instance):
         #update label
