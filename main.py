@@ -84,12 +84,13 @@ class ChordCircle(Widget):
     center_y = Window.height - 300
     radius = min(Window.width, Window.height) * 0.25 - 20  # Deduct 20 to account for the small circles
 
-    def __init__(self, chord, overlay_mode=False, **kwargs):
+    def __init__(self, chord, circle_type, overlay_mode=False, **kwargs):
         super(ChordCircle, self).__init__(**kwargs)
+        self.circle_type = circle_type
         self.chords_history = [chord]
         self.overlay_enabled = overlay_mode
         self.toggle = False
-        self.toggled_chord_index = None
+        #self.toggled_chord_index = None
         self.toggled_chord = ""
         self.draw_chr_circle()
     
@@ -109,7 +110,13 @@ class ChordCircle(Widget):
 
     def draw_chr_circle(self):
         # Define the notes and their positions
-        notes = ['A', 'A#', 'B', 'C', 'C#', 'D','D#', 'E', 'F', 'F#', 'G', 'G#']
+        self.canvas.clear()
+        notes = []
+        if self.circle_type == 'chromatic_circle':
+            notes = ['A', 'A#', 'B', 'C', 'C#', 'D','D#', 'E', 'F', 'F#', 'G', 'G#']
+        elif self.circle_type == 'circle_of_fifths':
+            notes = ['D#', 'A#', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#', 'G#']
+
         num_notes = len(notes)
         theta = np.linspace(0, 2*np.pi, num_notes, endpoint=False)
         x = np.cos(theta) * self.radius + self.center_x
@@ -183,7 +190,6 @@ class MyApp(MDApp):
         button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=50, spacing=10, padding=10)
         button_layout.add_widget(Widget())  # Empty widget to take up space
 
-
         self.dropdown_visible = False
         self.header = MDBoxLayout(size_hint_y=None, height=50, md_bg_color=(0.106,0.106,0.106))
         header_label = Label(text='SoundShapes', size_hint_x=1, size=(Window.width, self.header.height), halign='left', valign='middle', padding=15)
@@ -201,7 +207,7 @@ class MyApp(MDApp):
         self.main_layout.add_widget(self.dropdown)
 
         # Create a ChordCircle widget with a default chord and add it to the layout
-        self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, size_hint=(1, 0.3))
+        self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='chromatic_circle', size_hint=(1, 0.3))
 
         #Chord-name
         self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
@@ -242,25 +248,31 @@ class MyApp(MDApp):
         return self.main_layout
 
     def toggle_dropdown(self, instance):
-        options = ['Chromatic circle', 'Circle of fifths', 'Coltranes circle']
+        options = {
+            'Chromatic circle': 'chromatic_circle',
+            'Circle of fifths': 'circle_of_fifths',
+            'Coltrane circle': 'coltrane_circle'
+        }
+
         if self.dropdown_visible:
             self.dropdown.height = 0
             self.dropdown.clear_widgets()
         else:
             self.dropdown.orientation = 'vertical'
-            self.dropdown.spacing = 0
-            self.dropdown.padding = [0, 0, 0, 0]
-            
-            for i in range(len(options)):
-                btn = Button(text=f'{options[i]}', height=50, size_hint_y=None,
+            for i, value in options.items():
+                btn = Button(text=f'{i}', height=50, size_hint_y=None,
                             background_normal='', background_down='', background_color=(0.106,0.106,0.106))
+                
+                btn.bind(on_press = lambda inst, c=value: self.circletype_callback(inst,c))
                 self.dropdown.add_widget(btn)
             
             self.dropdown.height = sum(btn.height for btn in self.dropdown.children)
         
         self.dropdown_visible = not self.dropdown_visible
 
-
+    def circletype_callback(self, instance, c):
+        self.chord_circle.circle_type = c
+        self.chord_circle.draw_chr_circle()
 
     def scroll_previous_chord(self, instance):
         #update label
@@ -319,10 +331,10 @@ class MyApp(MDApp):
                 self.chord = notes
                 #draw lines between the notes in the circle
                 self.chord_circle.update_chord(self.chord)
+
                 #update label
                 self.current_chord_index += 1
                 self.update_chord_label(chord_from_audio)
-
 
 if __name__ == '__main__':
     MyApp().run()
