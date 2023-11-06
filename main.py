@@ -1,23 +1,20 @@
+
 from kivymd.app import MDApp
 from kivymd.uix.button import MDRoundFlatButton, MDFloatingActionButton
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.button import MDIconButton
-from kivy.app import App
 from kivy.uix.widget import Widget
-from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.togglebutton import ToggleButton
 from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.graphics import Color, Line, Ellipse, Rectangle
 from kivy.core.window import Window
-from kivy.animation import Animation
 import librosa
 import numpy as np
 import joblib
-from sklearn.preprocessing import LabelEncoder
 from scipy.io import wavfile
 import sounddevice as sd
+
 
 
 # Set the window size
@@ -113,7 +110,7 @@ class ChordCircle(Widget):
         self.canvas.clear()
         notes = []
         if self.circle_type == 'chromatic_circle':
-            notes = ['A', 'A#', 'B', 'C', 'C#', 'D','D#', 'E', 'F', 'F#', 'G', 'G#']
+            notes = ['D#', 'D', 'C#', 'C', 'B', 'A#','A', 'G#', 'G', 'F#', 'F', 'E']
         elif self.circle_type == 'circle_of_fifths':
             notes = ['D#', 'A#', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#', 'G#']
 
@@ -174,8 +171,8 @@ class ChordCircle(Widget):
 
 class MyApp(MDApp):
     sample_rate = 44100
-    chord = ['D#','B','G']
-    chord_history = ['C#']
+    chord = []
+    chord_history = []
     current_chord_index = 0
     # Load the trained model and label encoder
     model = joblib.load('chord_identifier.pkl')
@@ -211,7 +208,7 @@ class MyApp(MDApp):
 
         #Chord-name
         self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
-        self.chord_name = Label(text=self.chord_history[0], color="black")
+        self.chord_name = Label(text=' ', color="black")
 
         # Before your toggle_button, let's add the left arrow button
         left_arrow_button = MDIconButton(icon="arrow-left", md_bg_color=(1,1,1),pos_hint={'center_y': 0.5})
