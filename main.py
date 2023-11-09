@@ -16,8 +16,8 @@ import numpy as np
 import joblib
 from scipy.io import wavfile
 import sounddevice as sd
+import soundfile as sf
 import matplotlib.pyplot as plt
-from cleaning import remove_silence
 
 # Set the window size
 Window.size = (360, 640)  # width x height
@@ -25,11 +25,35 @@ Window.size = (360, 640)  # width x height
 # Optional: Disable window resizing
 Window.resizable = True
 
+class Chord_preprocessing():
+    def __init__(self):
+        pass
+
+    def adjust_loudness(self, audio, fs, target_rms=-15):
+        # Calculate the RMS energy of the audio
+        rms = np.sqrt(np.mean(audio**2))
+
+        # Calculate the gain needed to reach the target RMS level
+        gain = 10**((target_rms - 20 * np.log10(rms)) / 20)
+
+        # Apply the gain to the audio
+        adjusted_audio = audio * gain
+
+        # Specify the output filename
+        output_filename = "adjusted_audio.wav"
+
+        # Export the adjusted audio to a WAV file
+        #sf.write(output_filename, adjusted_audio, fs)
+
+        return adjusted_audio
+
 class Chord_classifier():
     '''Uses the chord_identifier.pkl model to classify any chord.'''
     def __init__(self, model, encoder):
         self.model = model
         self.label_encoder = encoder
+        self.preprocessing = Chord_preprocessing()
+
     
     def get_notes_for_chord(self, chord):
         '''takes a chord (C#) and gives you the triad notes in that chord'''
@@ -80,8 +104,11 @@ class Chord_classifier():
         # Load the audio file
         chord, fs = librosa.load(audio_file, sr=None)
         
+        #preprocessing
+        processed_chord = self.preprocessing.adjust_loudness(chord, fs)
+
         # Decompose the audio signal into harmonic and percussive components
-        harmonic, percussive = librosa.effects.hpss(chord)
+        harmonic, percussive = librosa.effects.hpss(processed_chord)
         
         # Compute the constant-Q transform (CQT)
         # Here, we assume that fmin is C1, which is a common choice. You may change this as needed.
@@ -361,10 +388,8 @@ class MyApp(MDApp):
             if self.recorded_audio is not None:
                 wavfile.write('recorded_chord.wav', self.sample_rate, self.recorded_audio)
 
-                #removesilence
-                # remove_silence('recorded_chord.wav')
                 #classify the chord
-                chord_from_audio = self.classifier.predict_new_chord('Emajor.wav', self.model, self.label_encoder)
+                chord_from_audio = self.classifier.predict_new_chord('recorded_chord.wav', self.model, self.label_encoder)
                 #add label to list
                 self.chord_history.append(chord_from_audio)
                 #derive notes from chord
