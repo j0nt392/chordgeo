@@ -10,14 +10,16 @@ from kivy.uix.label import Label
 from kivy.graphics import Color, Line, Ellipse, Rectangle
 from kivy.core.window import Window
 import librosa
-import scipy.signal
-from scipy.signal import butter, lfilter, sosfilt
 import numpy as np
 import joblib
 from scipy.io import wavfile
 import sounddevice as sd
 import soundfile as sf
 import matplotlib.pyplot as plt
+
+import sounddevice as sd
+import numpy as np
+import threading
 
 # Set the window size
 Window.size = (360, 640)  # width x height
@@ -87,17 +89,6 @@ class Chord_classifier():
             # Handle the case when the chord is not in the dictionary
             return []
 
-    def butter_highpass(self, cutoff, fs, order=5):
-        nyq = 0.5 * fs
-        normal_cutoff = cutoff / nyq
-        b, a = butter(order, normal_cutoff, btype='high', analog=False)
-        return b, a
-
-    def highpass_filter(self, y, sr, cutoff=100, order=2):
-        nyquist = 0.5 * sr
-        norm_cutoff = cutoff / nyquist
-        sos = scipy.signal.butter(order, norm_cutoff, btype='highpass', analog=False, output='sos')
-        return scipy.signal.sosfilt(sos, y)
 
     # Define a function to extract features from an audio file
     def extract_features(self, audio_file):
