@@ -1,6 +1,8 @@
 import os
 import librosa
 import numpy as np
+import scipy.signal
+from scipy.signal import butter, lfilter, sosfilt
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
@@ -8,13 +10,37 @@ from sklearn.metrics import accuracy_score
 import joblib
 
 
+def butter_highpass(cutoff, fs, order=5):
+    nyq = 0.5 * fs
+    normal_cutoff = cutoff / nyq
+    b, a = butter(order, normal_cutoff, btype='high', analog=False)
+    return b, a
+
+def highpass_filter(y, sr, cutoff=100, order=2):
+    nyquist = 0.5 * sr
+    norm_cutoff = cutoff / nyquist
+    sos = scipy.signal.butter(order, norm_cutoff, btype='highpass', analog=False, output='sos')
+    return scipy.signal.sosfilt(sos, y)
+
+
 # Define a function to extract features from an audio file
 def extract_features(audio_file):
+    # Load the audio file
     chord, fs = librosa.load(audio_file, sr=None)
-    chord_emphasized = librosa.effects.preemphasis(chord, coef=0.97)
-    chromagram = librosa.feature.chroma_cens(y=chord_emphasized, sr=fs, hop_length=512)
-    pitch_sum = chromagram.sum(axis=1)
+    
+    # Decompose the audio signal into harmonic and percussive components
+    harmonic, percussive = librosa.effects.hpss(chord)
+    
+    # Compute the constant-Q transform (CQT)
+    # Here, we assume that fmin is C1, which is a common choice. You may change this as needed.
+    C = librosa.cqt(y=harmonic, sr=fs, fmin=librosa.note_to_hz('C1'))
+    
+    # Convert the complex CQT output into magnitude, which represents the energy at each CQT bin
+    # Summing across the time axis gives us the aggregate energy for each pitch bin
+    pitch_sum = np.abs(C).sum(axis=1)
+    
     return pitch_sum
+
 
 # Define the paths to your "train" and "test" directories
 train_data_dir = "Training"
