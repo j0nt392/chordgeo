@@ -9,19 +9,22 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.graphics import Color, Line, Ellipse, Rectangle
 from kivy.core.window import Window
+
+import pyaudio
+import struct
+from scipy.fftpack import fft
+import time 
+import threading
+
 import librosa
 import numpy as np
 import joblib
-from scipy.io import wavfile
-import sounddevice as sd
-import soundfile as sf
-import matplotlib.pyplot as plt
+
 from kivy.clock import Clock
 import sounddevice as sd
 import numpy as np
-import threading
 import wave
-import sys
+import warnings
 
 # Set the window size
 Window.size = (360, 640)  # width x height
@@ -29,6 +32,85 @@ Window.size = (360, 640)  # width x height
 # Optional: Disable window resizing
 Window.resizable = True
 
+import threading
+# ... (other imports and code)
+
+class AudioStream(object):
+    def __init__(self, chord_circle):
+        self.chord_circle = chord_circle
+        # stream constants
+        self.CHUNK = 1024 * 2
+        self.FORMAT = pyaudio.paInt16
+        self.CHANNELS = 1
+        self.RATE = 44100
+        self.streaming = False
+        self.classifier = Chord_classifier()
+        self.p = pyaudio.PyAudio()
+        self.notes = []
+
+    def stream_audio(self):
+        print('stream started')
+        frame_count = 0
+        while self.streaming:
+            data = self.stream.read(self.CHUNK)
+            data_int = struct.unpack(str(2 * self.CHUNK) + 'B', data)
+
+            # Calculate chromagram and pitch sum
+            audio_signal = np.array(data_int, dtype=np.float32) / 32768.0  # Normalize to floating-point
+
+            # Update the label text in the Kivy UI
+            self.update_label(audio_signal)
+
+            frame_count += 1
+
+    def update_label(self, pitch_sum):
+        chord = self.classifier.predict_new_chord(pitch_sum, self.RATE)
+        self.notes = self.classifier.get_notes_for_chord(chord)
+        print(self.notes)
+
+        # Use Clock.schedule_once to update the UI in the main thread
+        Clock.schedule_once(self.update_circle_with_notes, 0)
+
+    def update_circle_with_notes(self, dt):
+        # Call the update_circle method of the ChordCircle widget
+        self.chord_circle.update_chord(self.notes)
+
+    def toggle_stream(self):
+        if self.streaming:
+            self.stop_stream()
+        else:
+            # Create a new audio streaming thread
+            self.audio_thread = threading.Thread(target=self.start_stream)
+            self.audio_thread.start()
+            self.streaming = True  # Start streaming
+
+    def stop_stream(self):
+        if self.streaming:
+            self.streaming = False  # Stop streaming
+            self.stream.stop_stream()
+            self.stream.close()
+            self.p.terminate()
+            print("Stream stopped")
+            if hasattr(self, 'audio_thread') and self.audio_thread.is_alive():
+                # Join the audio thread with the main thread
+                self.audio_thread.join()
+
+    def start_stream(self):
+        # Create a new PyAudio instance
+        self.p = pyaudio.PyAudio()
+        # Open the audio stream
+        self.stream = self.p.open(
+            format=self.FORMAT,
+            channels=self.CHANNELS,
+            rate=self.RATE,
+            input=True,
+            output=True,
+            frames_per_buffer=self.CHUNK,
+        )
+        print("Stream started")
+        # Start the audio streaming loop
+        self.stream_audio()
+    
 class Chord_preprocessing():
     def __init__(self):
         pass
@@ -53,11 +135,10 @@ class Chord_preprocessing():
 
 class Chord_classifier():
     '''Uses the chord_identifier.pkl model to classify any chord.'''
-    def __init__(self, model, encoder):
-        self.model = model
-        self.label_encoder = encoder
+    def __init__(self):
+        self.model = joblib.load('chord_identifier.pkl')
+        self.label_encoder = joblib.load('label_encoder.pkl')
         self.preprocessing = Chord_preprocessing()
-
     
     def get_notes_for_chord(self, chord):
         '''takes a chord (C#) and gives you the triad notes in that chord'''
@@ -90,50 +171,38 @@ class Chord_classifier():
         else:
             # Handle the case when the chord is not in the dictionary
             return []
-
     # Define a function to extract features from an audio file
-    def extract_features(self, audio_file, n_fft):
-        # Load the audio file
-        chord, fs = librosa.load(audio_file, sr=None)
-        
+    def _extract_features(self, audio_file, fs):
         #preprocessing
-        processed_chord = self.preprocessing.adjust_loudness(chord, fs)
+        #processed_chord = self.preprocessing.adjust_loudness(chord, fs)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            # Decompose the audio signal into harmonic and percussive components
+            harmonic, percussive = librosa.effects.hpss(audio_file)
+            
+            # Compute the constant-Q transform (CQT)
+            # Here, we assume that fmin is C1, which is a common choice. You may change this as needed.
+            C = librosa.cqt(y=harmonic, sr=fs, fmin=librosa.note_to_hz('C1'), hop_length=128, n_bins=84)
+            
+            # Convert the complex CQT output into magnitude, which represents the energy at each CQT bin
+            # Summing across the time axis gives us the aggregate energy for each pitch bin
+            pitch_sum = np.abs(C).sum(axis=1)
+            
+            return pitch_sum
 
-        # Decompose the audio signal into harmonic and percussive components
-        harmonic, percussive = librosa.effects.hpss(processed_chord)
-        
-        # Compute the constant-Q transform (CQT)
-        # Here, we assume that fmin is C1, which is a common choice. You may change this as needed.
-        C = librosa.cqt(y=harmonic, sr=fs, fmin=librosa.note_to_hz('C1'), hop_length=512, n_bins=84)
-        
-        # Convert the complex CQT output into magnitude, which represents the energy at each CQT bin
-        # Summing across the time axis gives us the aggregate energy for each pitch bin
-        pitch_sum = np.abs(C).sum(axis=1)
-        
-        return pitch_sum
-
-        # plt.figure(figsize=(10, 4))
-        # librosa.display.specshow(chromagram, y_axis='chroma', x_axis='time', sr=fs, hop_length=512)
-        # plt.colorbar(format='%+2.0f dB')
-        # plt.title('Chromagram')
-        # plt.tight_layout()
-        # plt.show()
-        # print(pitch_sum)
-
-    def predict_new_chord(self, audio_file_path):
+    def predict_new_chord(self, audio_file_path, fs):
         # Extract features from the new audio file
-        feature_vector = self.extract_features(audio_file_path, 64)
-
-        # Reshape the feature vector to match the model's input shape
+        # Extract features from the new audio file
+        feature_vector = self._extract_features(audio_file_path, fs)
+        # # Reshape the feature vector to match the model's input shape
         feature_vector = feature_vector.reshape(1, -1)
+        try:
+            predicted_label = self.model.predict(feature_vector)
+            predicted_chord = self.label_encoder.inverse_transform(predicted_label)
 
-        # Use the trained model to make a prediction
-        predicted_label = self.model.predict(feature_vector)
-
-        # Decode the predicted label to get the chord name
-        predicted_chord = self.label_encoder.inverse_transform(predicted_label)
-
-        return predicted_chord[0]
+            return predicted_chord[0]       
+        except Exception as e:
+            return "Error during prediction: %s", str(e)
 
 class ChordCircle(Widget):
     center_x = Window.width * 0.23
@@ -161,7 +230,7 @@ class ChordCircle(Widget):
             self.chords_history.append(new_chord)
         else:
             self.chords_history = [new_chord]
-        self.canvas.clear()
+        #self.canvas.clear()
         self.draw_chr_circle()
 
     def draw_chr_circle(self):
@@ -229,20 +298,12 @@ class ChordCircle(Widget):
                 self.add_widget(note_label)
 
 class MyApp(MDApp):
-    sample_rate = 44100
-    buffer_size = int(sample_rate * 0.01)  # 10 ms buffer
-    recording = False
-    buffer = []
-
-    chord = []
-    chord_history = []
-    current_chord_index = 0
-    # Load the trained model and label encoder
-    model = joblib.load('chord_identifier.pkl')
-    label_encoder = joblib.load('label_encoder.pkl')
-    classifier = Chord_classifier(model, label_encoder)
 
     def build(self):
+        self.chord = []
+        self.chord_history = []
+        self.current_chord_index = 0
+        self.recording = False
         self.overlay_mode = False
         # Create the main layout
         self.main_layout = BoxLayout(orientation='vertical', spacing=0, padding=[0, 0, 0, 20])
@@ -268,6 +329,9 @@ class MyApp(MDApp):
 
         # Create a ChordCircle widget with a default chord and add it to the layout
         self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='chromatic_circle', size_hint=(1, 0.3))
+        
+        # Create an audiorecorder that streams audio
+        self.recorder = AudioStream(chord_circle=self.chord_circle)
 
         #Chord-name
         self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
@@ -293,9 +357,9 @@ class MyApp(MDApp):
         toggle_button.bind(on_press=self.toggle_overlay_mode)
         button_layout.add_widget(toggle_button)
         # Add a record button
-        record_button = MDFloatingActionButton(icon="microphone", md_bg_color=(0.2,0.2,0.2))
-        record_button.bind(on_press=self.record_chord)
-        button_layout.add_widget(record_button)
+        self.record_button = MDFloatingActionButton(icon="microphone", md_bg_color=(0.2,0.2,0.2))
+        self.record_button.bind(on_press=self.record_audio)
+        button_layout.add_widget(self.record_button)
         button_layout.add_widget(Widget())  # Empty widget to take up space
 
         self.recording = False  # Flag to indicate whether recording is in progress
@@ -363,128 +427,23 @@ class MyApp(MDApp):
         else:
             instance.icon = "layers"
 
-    def old_record_chord(self, instance):
-        if not self.recording:
-            # Start recording
-            self.recording = True
-            instance.icon = "stop"
 
-            # Set the sample rate and duration for recording
-            duration = 5  # Record for 5 seconds (you can adjust this too)
+        if len(self.buffer) > 0:
+            buffer_data = np.concatenate(self.buffer, axis=0)
+            with wave.open(filename, 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(self.sample_rate)
+                wf.writeframes(buffer_data.tobytes())
 
-            # Start recording audio
-            self.recorded_audio = sd.rec(int(self.sample_rate * duration), samplerate=self.sample_rate, channels=1)
-        else:
-            # Stop recording
-            self.recording = False
-            instance.icon = "microphone"
-            
-            # Save the recorded audio to a WAV file
-            if self.recorded_audio is not None:
-                wavfile.write('recorded_chord.wav', self.sample_rate, self.recorded_audio)
-
-                #classify the chord
-                chord_from_audio = self.classifier.predict_new_chord('recorded_chord.wav', self.model, self.label_encoder)
-                #add label to list
-                self.chord_history.append(chord_from_audio)
-                #derive notes from chord
-                notes = self.classifier.get_notes_for_chord(chord_from_audio)
-                self.chord = notes
-                #draw lines between the notes in the circle
-                self.chord_circle.update_chord(self.chord)
-
-                #update label
-                self.current_chord_index += 1
-                self.update_chord_label(chord_from_audio)
-
-    def record_chord(self, instance):
-        if self.recording == False:
-            self.recording = True
-            instance.icon = "stop"
-            self.buffer = []
-            self.last_processed_index = 0
-
-            print(self.recording)
-            # Start streaming audio input with the callback
-            def audio_callback(indata, frames, time, status):
-
-                if status:
-                    print(status, file=sys.stderr)
-                if self.recording:
-                    new_data = indata[self.last_processed_index:]
-                    self.buffer.append(new_data.copy())
-                    
-                    # Update the last processed index
-                    self.last_processed_index = len(indata)                    
-                    max_buffer_size = 10000
-                    if len(self.buffer) > max_buffer_size:
-                        self.buffer = []
-
-            with sd.InputStream(callback=audio_callback, channels=1, samplerate=self.sample_rate,  dtype='int16'):
-                print("Recording started")
-
-                try:
-                    while self.recording:
-                        if len(self.buffer) > 0:
-                            print("buffer is longer than 0")
-
-                            # Process the buffer and perform chord recognition
-                            buffer_data = np.concatenate(self.buffer, axis=0)
-
-                            # Check for non-finite values
-                            if not np.all(np.isfinite(buffer_data)):
-                                print("Buffer contains non-finite values. Skipping processing.")
-                                self.buffer = []  # Clear the buffer to avoid further processing issues
-                                return
-                            print("Buffer data shape:", buffer_data.shape)
-                            print("Buffer data dtype:", buffer_data.dtype)
-
-                            # Save the buffer to a temporary WAV file
-                            with wave.open('recorded_chord.wav', 'wb') as wf:
-                                wf.setnchannels(1)
-                                wf.setsampwidth(2)
-                                wf.setframerate(self.sample_rate)
-                                wf.writeframes(buffer_data.tobytes())
-
-                            #classify the chord
-                            chord_from_audio = self.classifier.predict_new_chord('recorded_chord.wav')
-                            # Label chord above circle
-                            self.chord_name.text = f"{chord_from_audio}"
-                            #add label to list
-                            self.chord_history.append(chord_from_audio)
-                            #derive notes from chord
-                            notes = self.classifier.get_notes_for_chord(chord_from_audio)
-                            self.chord = notes
-                            self.chord_circle.update_chord(self.chord)
-
-                            #update label
-                            self.current_chord_index += 1
-                                    # Limit the buffer size (e.g., to a maximum of 10000 frames)
-
-                except Exception as e:
-                    print(f"Error: {e}")
-                finally:
-                    print("Recording stopped")
-        else:
-            self.recording = False
-            self.buffer = []
-            instance.icon = "microphone"
-            self.chord_name.text = "error"
-            print("Recording stopped")
-
-
-    def update(self, dt):
-        if self.recording:
-            #draw lines between the notes in the circle
-            self.chord_circle.update_chord(self.chord)
-
-            #update label
-            self.current_chord_index += 1
-            #self.update_chord_label(chord_from_audio)
-
-
-
+    def record_audio(self, instance):
+        if self.recording == False and self.recorder.streaming == False:
+            self.record_button.icon = 'stop'
+            self.recorder.toggle_stream()
+            self.chord_circle.update_chord(self.recorder.notes)
+        elif self.recorder.streaming == True:
+            self.record_button.icon = 'microphone'
+            self.recorder.toggle_stream()
+        
 if __name__ == '__main__':
-    app = MyApp()
-    Clock.schedule_interval(app.update, 1.0 / 60.0)  # Call update() 60 times per second
-    app.run()
+    app = MyApp().run()
