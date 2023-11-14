@@ -26,49 +26,62 @@ import numpy as np
 import wave
 import warnings
 
+import matplotlib as plt
+from sklearn.tree import plot_tree
+
+
 # Set the window size
 Window.size = (360, 640)  # width x height
 
 # Optional: Disable window resizing
 Window.resizable = True
 
-import threading
-# ... (other imports and code)
 
 class AudioStream(object):
-    def __init__(self, chord_circle):
+    def __init__(self, chord_circle, label):
+        self.label = label
         self.chord_circle = chord_circle
         # stream constants
-        self.CHUNK = 1024 * 2
-        self.FORMAT = pyaudio.paInt16
+        self.CHUNK = 1024
+        self.FORMAT = pyaudio.paFloat32
         self.CHANNELS = 1
         self.RATE = 44100
         self.streaming = False
         self.classifier = Chord_classifier()
         self.p = pyaudio.PyAudio()
         self.notes = []
+        self.audio_buffer = []
+        self.buffer_length = 44100   # multiply with how many seconds 
 
     def stream_audio(self):
         print('stream started')
-        frame_count = 0
+        output_stream = self.p.open(format=self.FORMAT,
+                            channels=self.CHANNELS,
+                            rate=self.RATE,
+                            output=True)
         while self.streaming:
             data = self.stream.read(self.CHUNK)
-            data_int = struct.unpack(str(2 * self.CHUNK) + 'B', data)
+            data_int = struct.unpack(str(self.CHUNK) + 'f', data)
+            self.audio_buffer.extend(data_int)
 
-            # Calculate chromagram and pitch sum
-            audio_signal = np.array(data_int, dtype=np.float32) / 32768.0  # Normalize to floating-point
+            if len(self.audio_buffer) >= self.buffer_length:
+                audio_signal = np.array(self.audio_buffer, dtype=np.float32) #/ 32768.0  # Normalize
+                print(audio_signal)
 
-            # Update the label text in the Kivy UI
-            self.update_label(audio_signal)
+                buffer_bytes = struct.pack('<' + ('f' * len(self.audio_buffer)), *self.audio_buffer)
+            
+                # Play the buffered audio
+                output_stream.write(buffer_bytes)
 
-            frame_count += 1
+                self.audio_buffer = []  # Clear the buffer after processing
+                self.update_label(audio_signal)
+
+                
 
     def update_label(self, pitch_sum):
         chord = self.classifier.predict_new_chord(pitch_sum, self.RATE)
+        self.label.text = chord
         self.notes = self.classifier.get_notes_for_chord(chord)
-        print(self.notes)
-
-        # Use Clock.schedule_once to update the UI in the main thread
         Clock.schedule_once(self.update_circle_with_notes, 0)
 
     def update_circle_with_notes(self, dt):
@@ -174,21 +187,17 @@ class Chord_classifier():
     # Define a function to extract features from an audio file
     def _extract_features(self, audio_file, fs):
         #preprocessing
-        #processed_chord = self.preprocessing.adjust_loudness(chord, fs)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            # Decompose the audio signal into harmonic and percussive components
-            harmonic, percussive = librosa.effects.hpss(audio_file)
-            
-            # Compute the constant-Q transform (CQT)
-            # Here, we assume that fmin is C1, which is a common choice. You may change this as needed.
-            C = librosa.cqt(y=harmonic, sr=fs, fmin=librosa.note_to_hz('C1'), hop_length=128, n_bins=84)
-            
-            # Convert the complex CQT output into magnitude, which represents the energy at each CQT bin
-            # Summing across the time axis gives us the aggregate energy for each pitch bin
-            pitch_sum = np.abs(C).sum(axis=1)
-            
-            return pitch_sum
+        harmonic, percussive = librosa.effects.hpss(audio_file)
+        
+        # Compute the constant-Q transform (CQT)
+        # Here, we assume that fmin is C1, which is a common choice. You may change this as needed.
+        C = librosa.cqt(y=harmonic, sr=fs, fmin=librosa.note_to_hz('C1'), hop_length=256, n_bins=84)
+        
+        # Convert the complex CQT output into magnitude, which represents the energy at each CQT bin
+        # Summing across the time axis gives us the aggregate energy for each pitch bin
+        pitch_sum = np.abs(C).sum(axis=1)
+        
+        return pitch_sum
 
     def predict_new_chord(self, audio_file_path, fs):
         # Extract features from the new audio file
@@ -199,7 +208,6 @@ class Chord_classifier():
         try:
             predicted_label = self.model.predict(feature_vector)
             predicted_chord = self.label_encoder.inverse_transform(predicted_label)
-
             return predicted_chord[0]       
         except Exception as e:
             return "Error during prediction: %s", str(e)
@@ -329,13 +337,14 @@ class MyApp(MDApp):
 
         # Create a ChordCircle widget with a default chord and add it to the layout
         self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='chromatic_circle', size_hint=(1, 0.3))
-        
-        # Create an audiorecorder that streams audio
-        self.recorder = AudioStream(chord_circle=self.chord_circle)
+    
 
         #Chord-name
         self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
         self.chord_name = Label(text=' ', color="black")
+
+        # Create an audiorecorder that streams audio
+        self.recorder = AudioStream(chord_circle=self.chord_circle, label=self.chord_name)
 
         # Before your toggle_button, let's add the left arrow button
         left_arrow_button = MDIconButton(icon="arrow-left", md_bg_color=(1,1,1),pos_hint={'center_y': 0.5})
@@ -427,20 +436,10 @@ class MyApp(MDApp):
         else:
             instance.icon = "layers"
 
-
-        if len(self.buffer) > 0:
-            buffer_data = np.concatenate(self.buffer, axis=0)
-            with wave.open(filename, 'wb') as wf:
-                wf.setnchannels(1)
-                wf.setsampwidth(2)
-                wf.setframerate(self.sample_rate)
-                wf.writeframes(buffer_data.tobytes())
-
     def record_audio(self, instance):
         if self.recording == False and self.recorder.streaming == False:
             self.record_button.icon = 'stop'
             self.recorder.toggle_stream()
-            self.chord_circle.update_chord(self.recorder.notes)
         elif self.recorder.streaming == True:
             self.record_button.icon = 'microphone'
             self.recorder.toggle_stream()
