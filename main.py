@@ -29,17 +29,17 @@ import warnings
 import matplotlib as plt
 from sklearn.tree import plot_tree
 
+# # Set the window size
+# Window.size = (360, 640)  # width x height
 
-# Set the window size
-Window.size = (360, 640)  # width x height
-
-# Optional: Disable window resizing
-Window.resizable = True
-
+# # Optional: Disable window resizing
+# Window.resizable = True
 
 class AudioStream(object):
-    def __init__(self, chord_circle, label):
+    def __init__(self, chord_circle, label, history):
+        self.history = history
         self.label = label
+        self.chord = None
         self.chord_circle = chord_circle
         # stream constants
         self.CHUNK = 1024
@@ -51,7 +51,7 @@ class AudioStream(object):
         self.p = pyaudio.PyAudio()
         self.notes = []
         self.audio_buffer = []
-        self.buffer_length = 44100   # multiply with how many seconds 
+        self.buffer_length = 44100 * 0.2  # multiply with how many seconds 
 
     def stream_audio(self):
         print('stream started')
@@ -59,29 +59,37 @@ class AudioStream(object):
                             channels=self.CHANNELS,
                             rate=self.RATE,
                             output=True)
+        index = 0
         while self.streaming:
             data = self.stream.read(self.CHUNK)
             data_int = struct.unpack(str(self.CHUNK) + 'f', data)
             self.audio_buffer.extend(data_int)
 
+            # Start chord-analysis if buffer collected enough data
             if len(self.audio_buffer) >= self.buffer_length:
-                audio_signal = np.array(self.audio_buffer, dtype=np.float32) #/ 32768.0  # Normalize
-                print(audio_signal)
-
-                buffer_bytes = struct.pack('<' + ('f' * len(self.audio_buffer)), *self.audio_buffer)
-            
-                # Play the buffered audio
-                output_stream.write(buffer_bytes)
-
-                self.audio_buffer = []  # Clear the buffer after processing
+                audio_signal = np.array(self.audio_buffer, dtype=np.float32) # / 32768.0
                 self.update_label(audio_signal)
 
-                
+                # Restart audio-buffer when a new chord is introduced
+                if not self.history:  
+                    self.history.append(self.chord)
+                    self.label.text = self.chord
+
+                elif self.history[-1] != self.chord: 
+                    self.history.append(self.chord)
+                    self.label.text = self.chord
+                    self.audio_buffer = []
+                    
+                    print(self.history)
+                index += 1
+
+                #playback the buffer for debugging
+                #buffer_bytes = struct.pack('<' + ('f' * len(self.audio_buffer)), *self.audio_buffer)
+                # output_stream.write(buffer_bytes)
 
     def update_label(self, pitch_sum):
-        chord = self.classifier.predict_new_chord(pitch_sum, self.RATE)
-        self.label.text = chord
-        self.notes = self.classifier.get_notes_for_chord(chord)
+        self.chord = self.classifier.predict_new_chord(pitch_sum, self.RATE)
+        self.notes = self.classifier.get_notes_for_chord(self.chord)
         Clock.schedule_once(self.update_circle_with_notes, 0)
 
     def update_circle_with_notes(self, dt):
@@ -99,7 +107,7 @@ class AudioStream(object):
 
     def stop_stream(self):
         if self.streaming:
-            self.streaming = False  # Stop streaming
+            self.streaming = False  
             self.stream.stop_stream()
             self.stream.close()
             self.p.terminate()
@@ -120,7 +128,6 @@ class AudioStream(object):
             output=True,
             frames_per_buffer=self.CHUNK,
         )
-        print("Stream started")
         # Start the audio streaming loop
         self.stream_audio()
     
@@ -184,7 +191,7 @@ class Chord_classifier():
         else:
             # Handle the case when the chord is not in the dictionary
             return []
-    # Define a function to extract features from an audio file
+
     def _extract_features(self, audio_file, fs):
         #preprocessing
         harmonic, percussive = librosa.effects.hpss(audio_file)
@@ -213,8 +220,11 @@ class Chord_classifier():
             return "Error during prediction: %s", str(e)
 
 class ChordCircle(Widget):
-    center_x = Window.width * 0.23
-    center_y = Window.height - 300
+    #center_x = Window.width * 0.23 #iphone
+    #center_y = Window.height - 300 #iphone
+
+    center_x = Window.width/2
+    center_y = Window.height/2
     radius = min(Window.width, Window.height) * 0.25 - 20  # Deduct 20 to account for the small circles
 
     def __init__(self, chord, circle_type, overlay_mode=False, **kwargs):
@@ -225,6 +235,7 @@ class ChordCircle(Widget):
         self.toggle = False
         #self.toggled_chord_index = None
         self.toggled_chord = ""
+
         self.draw_chr_circle()
     
     def highlight_shape(self, chord):
@@ -247,6 +258,7 @@ class ChordCircle(Widget):
         notes = []
         if self.circle_type == 'chromatic_circle':
             notes = ['Eb', 'D', 'Db', 'C', 'B', 'Bb','A', 'Ab', 'G', 'Gb', 'F', 'E']
+
         elif self.circle_type == 'circle_of_fifths':
             notes = ['Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'Gb', 'Db', 'Ab']
 
@@ -258,15 +270,16 @@ class ChordCircle(Widget):
 
         with self.canvas:
             Color(0.5, 0.5, 0.5)
-            Line(circle=(self.center_x, self.center_y, self.radius))
-            for i, note in enumerate(notes):
-                Line(points=[x[i], y[i], x[(i+1) % num_notes], y[(i+1) % num_notes]])
+            line_width = 1.05  # Thicker line for the most recent chord
+
+            Line(circle=(self.center_x, self.center_y, self.radius), width=line_width)
+            #for i, note in enumerate(notes):
+                #Line(points=[x[i], y[i], x[(i+1) % num_notes], y[(i+1) % num_notes]])
 
             for idx, chord in enumerate(self.chords_history):
                 # Check if the current chord is the last one (most recent) in the history
                 if idx == len(self.chords_history) - 1 and self.toggle == False:  # Most recent chord
-                    Color(0, 0, 0)  # Example: Make it red for visibility. Adjust as per your design preference.
-                    line_width = 3  # Thicker line for the most recent chord
+                    Color(0.5, 0.5, 0.5)
                 
                 elif self.toggle == True and chord == self.toggled_chord:
                     #save chord for last so highlighted chord is overlayed on top
@@ -274,14 +287,13 @@ class ChordCircle(Widget):
                     continue
                     
                 else:
-                    Color(0.7, 0.7, 0.7)  # Your previous gray color for older chords
-                    line_width = 1  # Regular line width for older chords
+                    Color(0.5, 0.5, 0.5)
                 for i in range(len(chord)):
                     start_note = chord[i]
                     end_note = chord[(i+1) % len(chord)]
                     start_idx = notes.index(start_note)
                     end_idx = notes.index(end_note)
-                    Line(points=[x[start_idx], y[start_idx], x[end_idx], y[end_idx]])
+                    Line(points=[x[start_idx], y[start_idx], x[end_idx], y[end_idx]], width=line_width)
             
             # Highlight the chord scrolled to
             if highlighted_chord_idx is not None:
@@ -302,11 +314,10 @@ class ChordCircle(Widget):
                 Ellipse(pos=(x[i]-10, y[i]-10), size=(20, 20))
                 Color(0.5, 0.5, 0.5)
                 # Add labels here if needed using Kivy's Label widget
-                note_label = Label(text=note, center=(round(x[i]), round(y[i])), font_size=12, color=(0, 0, 0, 1))
+                note_label = Label(text=note, center=(round(x[i]), round(y[i])), font_size=15, color=(0, 0, 0, 1))
                 self.add_widget(note_label)
 
 class MyApp(MDApp):
-
     def build(self):
         self.chord = []
         self.chord_history = []
@@ -337,14 +348,14 @@ class MyApp(MDApp):
 
         # Create a ChordCircle widget with a default chord and add it to the layout
         self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='chromatic_circle', size_hint=(1, 0.3))
-    
+        self.chord_circle2 = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='circle_of_fifths', size_hint=(1, 0.3))
 
         #Chord-name
         self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
         self.chord_name = Label(text=' ', color="black")
 
         # Create an audiorecorder that streams audio
-        self.recorder = AudioStream(chord_circle=self.chord_circle, label=self.chord_name)
+        self.recorder = AudioStream(chord_circle=self.chord_circle, label=self.chord_name, history=self.chord_history)
 
         # Before your toggle_button, let's add the left arrow button
         left_arrow_button = MDIconButton(icon="arrow-left", md_bg_color=(1,1,1),pos_hint={'center_y': 0.5})
@@ -362,13 +373,18 @@ class MyApp(MDApp):
         self.chord_info.add_widget(Widget())
 
         # Add a toggle-button for chord-history
-        toggle_button = MDFloatingActionButton(icon="layers", md_bg_color=(0.2,0.2,0.2))
+        toggle_button = MDFloatingActionButton(icon="layers",md_bg_color=(0.2,0.2,0.2))
         toggle_button.bind(on_press=self.toggle_overlay_mode)
         button_layout.add_widget(toggle_button)
         # Add a record button
         self.record_button = MDFloatingActionButton(icon="microphone", md_bg_color=(0.2,0.2,0.2))
         self.record_button.bind(on_press=self.record_audio)
         button_layout.add_widget(self.record_button)
+
+        # Add a clear patterns button
+        clear_button = MDFloatingActionButton(icon="graphql", md_bg_color=(0.2,0.2,0.2))
+        clear_button.bind(on_press=self.clear_patterns)
+        button_layout.add_widget(clear_button)
         button_layout.add_widget(Widget())  # Empty widget to take up space
 
         self.recording = False  # Flag to indicate whether recording is in progress
@@ -376,6 +392,8 @@ class MyApp(MDApp):
 
         self.main_layout.add_widget(self.chord_info)
         self.main_layout.add_widget(self.chord_circle)
+        self.main_layout.add_widget(Widget())
+        self.main_layout.add_widget(self.chord_circle2)
         self.main_layout.add_widget(button_layout)  
 
         return self.main_layout
@@ -411,14 +429,14 @@ class MyApp(MDApp):
         #update label
         self.current_chord_index -= 1
         self.chord_name.text = self.chord_history[self.current_chord_index]
-        notes = self.classifier.get_notes_for_chord(self.chord_history[self.current_chord_index])
+        notes = self.recorder.classifier.get_notes_for_chord(self.chord_history[self.current_chord_index])
         self.chord_circle.highlight_shape(notes)
     
     def scroll_next_chord(self, instance):
         #update label
         self.current_chord_index += 1
         self.chord_name.text = self.chord_history[self.current_chord_index]
-        notes = self.classifier.get_notes_for_chord(self.chord_history[self.current_chord_index])
+        notes = self.recorder.classifier.get_notes_for_chord(self.chord_history[self.current_chord_index])
         self.chord_circle.highlight_shape(notes)
 
     def update_chord_label(self, value):
@@ -428,20 +446,30 @@ class MyApp(MDApp):
         self.rect.pos = instance.pos
         self.rect.size = instance.size
 
+    def clear_patterns(self, insance):
+        pass
+
     def toggle_overlay_mode(self, instance):
         self.overlay_mode = not self.overlay_mode
         self.chord_circle.overlay_enabled = self.overlay_mode  
         if self.overlay_mode:
             instance.icon = "layers-remove"
         else:
+            # Clear patterns 
+            self.chord_history = []
+            self.chord_circle.chords_history = []
+            self.chord_name.text = " "
+            self.chord_circle.draw_chr_circle()
             instance.icon = "layers"
 
     def record_audio(self, instance):
         if self.recording == False and self.recorder.streaming == False:
-            self.record_button.icon = 'stop'
+            instance.md_bg_color = (0.9, 0.3, 0.3, 1)
+            instance.icon = 'stop'
             self.recorder.toggle_stream()
         elif self.recorder.streaming == True:
-            self.record_button.icon = 'microphone'
+            instance.md_bg_color=(0.2,0.2,0.2)
+            instance.icon = 'microphone'
             self.recorder.toggle_stream()
         
 if __name__ == '__main__':
