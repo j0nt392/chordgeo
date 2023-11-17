@@ -2,6 +2,8 @@ from kivy.app import App
 from kivymd.app import MDApp
 from kivymd.uix.button import MDRoundFlatButton, MDFloatingActionButton
 from kivymd.uix.boxlayout import MDBoxLayout
+from kivymd.uix.floatlayout import FloatLayout
+
 from kivymd.uix.button import MDIconButton
 from kivy.uix.widget import Widget
 from kivy.uix.boxlayout import BoxLayout
@@ -10,6 +12,7 @@ from kivy.uix.label import Label
 from kivy.graphics import Color, Line, Ellipse, Rectangle
 from kivy.core.window import Window
 
+from plyer import filechooser 
 import pyaudio
 import struct
 from scipy.fftpack import fft
@@ -103,8 +106,6 @@ class AudioStream(object):
             self.analysis_thread = threading.Thread(target=self.analyze_buffer)
             self.audio_thread.start()
             self.analysis_thread.start()
-
-
 
     
 class Chord_preprocessing():
@@ -257,8 +258,8 @@ class ChordCircle(Widget):
                 if idx == len(self.chords_history) - 1 and self.toggle == False:  # Most recent chord
                     Color(0.5, 0.5, 0.5)
                 
+                # Self.Toggle checks if you have scrolled 
                 elif self.toggle == True and chord == self.toggled_chord:
-                    #save chord for last so highlighted chord is overlayed on top
                     highlighted_chord_idx = idx
                     continue
                     
@@ -300,83 +301,85 @@ class MyApp(MDApp):
         self.current_chord_index = 0
         self.recording = False
         self.overlay_mode = False
-        # Create the main layout
-        self.main_layout = BoxLayout(orientation='vertical', spacing=0, padding=[0, 0, 0, 20])
-        self.main_layout.bind(minimum_size=self.main_layout.setter('size'))
-        button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=50, spacing=10, padding=10)
-        button_layout.add_widget(Widget())  # Empty widget to take up space
-
+        self.recorded_audio = None  # To store the recorded audio data
         self.dropdown_visible = False
-        self.header = MDBoxLayout(size_hint_y=None, height=50, md_bg_color=(0.2,0.2,0.2))
+
+        
+        # Create the main layout
+        self.main_layout = FloatLayout()
+
+        '''header and dropdown configuration'''
+        self.header = MDBoxLayout(size_hint=(1, None), height=50, pos_hint={'top':1}, md_bg_color=(0.2,0.2,0.2))
         header_label = Label(text='SoundShapes', size_hint_x=1, size=(Window.width, self.header.height), halign='left', valign='middle', padding=15)
         header_label.bind(size=lambda *args: setattr(header_label, 'text_size', header_label.size))
 
         self.menu_button = MDIconButton(icon='menu', size_hint=(None,None), pos_hint={'center_y':0.5}, theme_text_color='Custom',text_color=[1,1,1,1])
         self.menu_button.bind(on_press=self.toggle_dropdown)
-        self.header.add_widget(header_label)
-        self.header.add_widget(self.menu_button)
-
-        self.dropdown = BoxLayout(size_hint_y=None)
+        
+        dropdown_top = 1 - (self.header.height / Window.height)
+        self.dropdown = BoxLayout(size_hint=(1, None), height=0, pos_hint={'top': dropdown_top})
         self.dropdown.height = 0  # Initially, the dropdown is not visible.
 
-        self.main_layout.add_widget(self.header)
-        self.main_layout.add_widget(self.dropdown)
-
-        # Create a ChordCircle widget with a default chord and add it to the layout
+        '''Chord circle'''
         self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='chromatic_circle', size_hint=(1, 0.3))
-        #self.chord_circle2 = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='circle_of_fifths', size_hint=(1, 0.3))
-
-        #Chord-name
-        self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
-        self.chord_name = Label(text=' ', color="black")
-
-        # Create an audiorecorder that streams audio
-        self.recorder = AudioStream(chord_circle=self.chord_circle, label=self.chord_name, history=self.chord_history)
-
-        # Before your toggle_button, let's add the left arrow button
-        left_arrow_button = MDIconButton(icon="arrow-left", md_bg_color=(1,1,1),pos_hint={'center_y': 0.5})
+        
+        '''Chord-name label and arrows to scroll chords.'''
+        #self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
+        self.chord_name = Label(text='Chromatic', color="black", size_hint=(None,None), size=(Window.width * 0.3, 50),pos_hint={'x': 0.35, 'center_y': 0.8})
+        left_arrow_button = MDIconButton(icon="arrow-left", md_bg_color=(1,1,1),pos_hint={'x': 0.375, 'center_y': 0.8})
         left_arrow_button.bind(on_press=self.scroll_previous_chord)  
-        # After your record_button, let's add the right arrow button
-        right_arrow_button = MDIconButton(icon="arrow-right", md_bg_color=(1,1,1),pos_hint={'center_y': 0.5})
+        right_arrow_button = MDIconButton(icon="arrow-right", md_bg_color=(1,1,1),pos_hint={'x': 0.555, 'center_y': 0.8})
         right_arrow_button.bind(on_press=self.scroll_next_chord)  
 
-        self.chord_info.add_widget(Widget())
-        self.chord_info.add_widget(Widget())
-        self.chord_info.add_widget(left_arrow_button)
-        self.chord_info.add_widget(self.chord_name)
-        self.chord_info.add_widget(right_arrow_button)
-        self.chord_info.add_widget(Widget())
-        self.chord_info.add_widget(Widget())
+        '''Here is the layout for the buttons at the bottom.'''
+        button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=50, spacing=10, padding=10)
+        button_layout.add_widget(Widget())  # Empty widget to take up space
 
-        # Add a toggle-button for chord-history
+        '''Toggle button for seeing overlapping shapes'''
         toggle_button = MDFloatingActionButton(icon="layers",md_bg_color=(0.2,0.2,0.2))
         toggle_button.bind(on_press=self.toggle_overlay_mode)
         button_layout.add_widget(toggle_button)
-        # Add a record button
+        
         self.record_button = MDFloatingActionButton(icon="microphone", md_bg_color=(0.2,0.2,0.2))
         self.record_button.bind(on_press=self.record_audio)
         button_layout.add_widget(self.record_button)
 
-        # Add a clear patterns button
-        clear_button = MDFloatingActionButton(icon="graphql", md_bg_color=(0.2,0.2,0.2))
+        '''Clears all shapes'''
+        clear_button = MDFloatingActionButton(icon="delete", md_bg_color=(0.2,0.2,0.2))
         clear_button.bind(on_press=self.clear_patterns)
         button_layout.add_widget(clear_button)
-        button_layout.add_widget(Widget())  # Empty widget to take up space
+         # Empty widget to take up space
 
-        self.recording = False  # Flag to indicate whether recording is in progress
-        self.recorded_audio = None  # To store the recorded audio data
-
-        self.main_layout.add_widget(self.chord_info)
+        '''Add folder for loading song'''
+        folder_button = MDFloatingActionButton(icon='folder', md_bg_color=(0.2,0.2,0.2))
+        button_layout.add_widget(folder_button)
+        folder_button.bind(on_press= self.load_song)
+        button_layout.add_widget(Widget()) 
+        
+        '''Add everything to main layout'''
+        self.header.add_widget(header_label)
+        self.header.add_widget(self.menu_button)
+        self.main_layout.add_widget(self.header)
+        
         self.main_layout.add_widget(self.chord_circle)
+        
+        self.main_layout.add_widget(left_arrow_button)
+        self.main_layout.add_widget(self.chord_name)
+        self.main_layout.add_widget(right_arrow_button)
+        self.main_layout.add_widget(self.dropdown)
+        #self.main_layout.add_widget(self.chord_info)
         self.main_layout.add_widget(button_layout)  
-
+        
+        # Create an audiorecorder that streams audio
+        self.recorder = AudioStream(chord_circle=self.chord_circle, label=self.chord_name, history=self.chord_history)
         return self.main_layout
 
     def toggle_dropdown(self, instance):
         options = {
             'Chromatic circle': 'chromatic_circle',
             'Circle of fifths': 'circle_of_fifths',
-            'Coltrane circle': 'coltrane_circle'
+            'Coltrane circle': 'coltrane_circle',
+            'Settings' : 'settings'
         }
 
         if self.dropdown_visible:
@@ -421,7 +424,10 @@ class MyApp(MDApp):
         self.rect.size = instance.size
 
     def clear_patterns(self, insance):
-        pass
+        self.chord_history = []
+        self.chord_circle.chords_history = []
+        self.chord_name.text = " "
+        self.chord_circle.draw_chr_circle()
 
     def toggle_overlay_mode(self, instance):
         self.overlay_mode = not self.overlay_mode
@@ -430,10 +436,6 @@ class MyApp(MDApp):
             instance.icon = "layers-remove"
         else:
             # Clear patterns 
-            self.chord_history = []
-            self.chord_circle.chords_history = []
-            self.chord_name.text = " "
-            self.chord_circle.draw_chr_circle()
             instance.icon = "layers"
 
     def record_audio(self, instance):
@@ -445,6 +447,14 @@ class MyApp(MDApp):
             instance.md_bg_color=(0.2,0.2,0.2)
             instance.icon = 'microphone'
             self.recorder.toggle_stream()
-        
+
+    def load_song(self, instance):
+        filechooser.open_file(on_selection=self.handle_selection)
+
+    def handle_selection(self, selection):
+        if selection:
+            filepath = selection[0]
+            print(f"selected file is: {filepath}")
+
 if __name__ == '__main__':
     app = MyApp().run()
