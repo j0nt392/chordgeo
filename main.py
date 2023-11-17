@@ -47,48 +47,41 @@ class AudioStream(object):
         self.CHANNELS = 1
         self.RATE = 44100
         self.streaming = False
-        self.classifier = Chord_classifier()
+        self.classifier = Chord_classifier()  # Assuming Chord_classifier is defined elsewhere
         self.p = pyaudio.PyAudio()
         self.notes = []
         self.audio_buffer = []
-        self.buffer_length = 44100 * 0.2  # multiply with how many seconds 
+        self.buffer_length = 44100 * 2  # Buffer length in samples
+        self.buffer_lock = threading.Lock()  # Lock for thread-safe buffer access
+        self.stream = self.p.open(format=self.FORMAT,
+                            channels=self.CHANNELS,
+                            rate=self.RATE,
+                            input=True,
+                            output=True,
+                            frames_per_buffer=self.CHUNK)
 
     def stream_audio(self):
         print('stream started')
-        output_stream = self.p.open(format=self.FORMAT,
-                            channels=self.CHANNELS,
-                            rate=self.RATE,
-                            output=True)
-        index = 0
+
         while self.streaming:
             data = self.stream.read(self.CHUNK)
             data_int = struct.unpack(str(self.CHUNK) + 'f', data)
-            self.audio_buffer.extend(data_int)
+            
+            with self.buffer_lock:  # Lock for thread-safe buffer access
+                self.audio_buffer.extend(data_int)
 
-            # Start chord-analysis if buffer collected enough data
+    def analyze_buffer(self):
+        while self.streaming:
             if len(self.audio_buffer) >= self.buffer_length:
-                audio_signal = np.array(self.audio_buffer, dtype=np.float32) # / 32768.0
+                with self.buffer_lock:  # Lock for thread-safe buffer access
+                    audio_signal = np.array(self.audio_buffer[:self.buffer_length], dtype=np.float32)
+                    self.audio_buffer = self.audio_buffer[self.buffer_length:]
+
                 self.update_label(audio_signal)
-
-                # Restart audio-buffer when a new chord is introduced
-                if not self.history:  
-                    self.history.append(self.chord)
-                    self.label.text = self.chord
-
-                elif self.history[-1] != self.chord: 
-                    self.history.append(self.chord)
-                    self.label.text = self.chord
-                    self.audio_buffer = []
-                    
-                    print(self.history)
-                index += 1
-
-                #playback the buffer for debugging
-                #buffer_bytes = struct.pack('<' + ('f' * len(self.audio_buffer)), *self.audio_buffer)
-                # output_stream.write(buffer_bytes)
 
     def update_label(self, pitch_sum):
         self.chord = self.classifier.predict_new_chord(pitch_sum, self.RATE)
+        self.label.text = self.chord
         self.notes = self.classifier.get_notes_for_chord(self.chord)
         Clock.schedule_once(self.update_circle_with_notes, 0)
 
@@ -98,38 +91,21 @@ class AudioStream(object):
 
     def toggle_stream(self):
         if self.streaming:
-            self.stop_stream()
-        else:
-            # Create a new audio streaming thread
-            self.audio_thread = threading.Thread(target=self.start_stream)
-            self.audio_thread.start()
-            self.streaming = True  # Start streaming
-
-    def stop_stream(self):
-        if self.streaming:
-            self.streaming = False  
-            self.stream.stop_stream()
-            self.stream.close()
-            self.p.terminate()
-            print("Stream stopped")
-            if hasattr(self, 'audio_thread') and self.audio_thread.is_alive():
-                # Join the audio thread with the main thread
+            print('stream closed')
+            self.streaming = False
+            if self.audio_thread.is_alive():
                 self.audio_thread.join()
+            if self.analysis_thread.is_alive():
+                self.analysis_thread.join()
+        else:
+            self.streaming = True
+            self.audio_thread = threading.Thread(target=self.stream_audio)
+            self.analysis_thread = threading.Thread(target=self.analyze_buffer)
+            self.audio_thread.start()
+            self.analysis_thread.start()
 
-    def start_stream(self):
-        # Create a new PyAudio instance
-        self.p = pyaudio.PyAudio()
-        # Open the audio stream
-        self.stream = self.p.open(
-            format=self.FORMAT,
-            channels=self.CHANNELS,
-            rate=self.RATE,
-            input=True,
-            output=True,
-            frames_per_buffer=self.CHUNK,
-        )
-        # Start the audio streaming loop
-        self.stream_audio()
+
+
     
 class Chord_preprocessing():
     def __init__(self):
@@ -348,7 +324,7 @@ class MyApp(MDApp):
 
         # Create a ChordCircle widget with a default chord and add it to the layout
         self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='chromatic_circle', size_hint=(1, 0.3))
-        self.chord_circle2 = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='circle_of_fifths', size_hint=(1, 0.3))
+        #self.chord_circle2 = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='circle_of_fifths', size_hint=(1, 0.3))
 
         #Chord-name
         self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
@@ -392,8 +368,6 @@ class MyApp(MDApp):
 
         self.main_layout.add_widget(self.chord_info)
         self.main_layout.add_widget(self.chord_circle)
-        self.main_layout.add_widget(Widget())
-        self.main_layout.add_widget(self.chord_circle2)
         self.main_layout.add_widget(button_layout)  
 
         return self.main_layout
