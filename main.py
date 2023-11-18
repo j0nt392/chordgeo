@@ -3,7 +3,6 @@ from kivymd.app import MDApp
 from kivymd.uix.button import MDRoundFlatButton, MDFloatingActionButton
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.floatlayout import FloatLayout
-
 from kivymd.uix.button import MDIconButton
 from kivy.uix.widget import Widget
 from kivy.uix.boxlayout import BoxLayout
@@ -11,6 +10,11 @@ from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.graphics import Color, Line, Ellipse, Rectangle
 from kivy.core.window import Window
+from kivy.core.text import LabelBase
+
+# Registering the custom font (make sure the font file is in your app directory)
+LabelBase.register(name='Roboto', 
+                   fn_regular='roboto\Roboto-BoldItalic.ttf')
 
 from plyer import filechooser 
 import pyaudio
@@ -31,6 +35,9 @@ import warnings
 
 import matplotlib as plt
 from sklearn.tree import plot_tree
+
+import os 
+os.environ["KIVY_NO_CONSOLELOG"] = "1"
 
 # # Set the window size
 # Window.size = (360, 640)  # width x height
@@ -170,11 +177,15 @@ class Chord_classifier():
             return []
 
     def _extract_features(self, audio_file, fs):
+        audio = None
+        if type(audio_file) == str:
+            audio, fs = librosa.load(audio_file, sr = None)
+        else:
+            audio = audio_file
         #preprocessing
-        harmonic, percussive = librosa.effects.hpss(audio_file)
+        harmonic, percussive = librosa.effects.hpss(audio)
         
         # Compute the constant-Q transform (CQT)
-        # Here, we assume that fmin is C1, which is a common choice. You may change this as needed.
         C = librosa.cqt(y=harmonic, sr=fs, fmin=librosa.note_to_hz('C1'), hop_length=256, n_bins=84)
         
         # Convert the complex CQT output into magnitude, which represents the energy at each CQT bin
@@ -184,7 +195,6 @@ class Chord_classifier():
         return pitch_sum
 
     def predict_new_chord(self, audio_file_path, fs):
-        # Extract features from the new audio file
         # Extract features from the new audio file
         feature_vector = self._extract_features(audio_file_path, fs)
         # # Reshape the feature vector to match the model's input shape
@@ -196,10 +206,34 @@ class Chord_classifier():
         except Exception as e:
             return "Error during prediction: %s", str(e)
 
+    def analyze_chord_progression(self, audio_file, buffer_length=1, hop_length=0.2):
+        # Load the audio file
+        print("reached analyzed")
+        y, sr = librosa.load(audio_file, sr=None)
+        print("load succesful")
+        # Calculate the number of samples per buffer
+        buffer_samples = int(buffer_length * sr)
+        hop_samples = int(hop_length * sr)
+        chords = []
+        # Start at the beginning and hop through the file
+        for start in range(0, len(y), hop_samples):
+            end = start + buffer_samples
+            # Make sure we don't go past the end of the audio file
+            if end <= len(y):
+                buffer = y[start:end]
+                print("got through the loop")
+                # Predict the chord for this buffer
+                chord = self.predict_new_chord(buffer, sr)
+                chords.append(chord)
+            else:
+                break  # We've reached the end of the audio
+        # Return the list of chords
+        print(chords)
+        return chords
+
 class ChordCircle(Widget):
     #center_x = Window.width * 0.23 #iphone
     #center_y = Window.height - 300 #iphone
-
     center_x = Window.width/2
     center_y = Window.height/2
     radius = min(Window.width, Window.height) * 0.25 - 20  # Deduct 20 to account for the small circles
@@ -212,7 +246,6 @@ class ChordCircle(Widget):
         self.toggle = False
         #self.toggled_chord_index = None
         self.toggled_chord = ""
-
         self.draw_chr_circle()
     
     def highlight_shape(self, chord):
@@ -303,8 +336,7 @@ class MyApp(MDApp):
         self.overlay_mode = False
         self.recorded_audio = None  # To store the recorded audio data
         self.dropdown_visible = False
-
-        
+        Window.clearcolor = (0.196, 0.196, 0.196, 1)
         # Create the main layout
         self.main_layout = FloatLayout()
 
@@ -320,15 +352,18 @@ class MyApp(MDApp):
         self.dropdown = BoxLayout(size_hint=(1, None), height=0, pos_hint={'top': dropdown_top})
         self.dropdown.height = 0  # Initially, the dropdown is not visible.
 
+        '''Circle type description'''
+        self.circle_type_label = Label(text='Chromatic circle', font_size="28sp", font_name="Roboto", color="black", size_hint=(None,None), size=(Window.width * 0.3, 80),pos_hint={'x': 0.35, 'center_y': 0.8})
+        
         '''Chord circle'''
         self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='chromatic_circle', size_hint=(1, 0.3))
         
         '''Chord-name label and arrows to scroll chords.'''
         #self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
-        self.chord_name = Label(text='Chromatic', color="black", size_hint=(None,None), size=(Window.width * 0.3, 50),pos_hint={'x': 0.35, 'center_y': 0.8})
-        left_arrow_button = MDIconButton(icon="arrow-left", md_bg_color=(1,1,1),pos_hint={'x': 0.375, 'center_y': 0.8})
+        self.chord_name = Label(text='Chromatic', color="black", size_hint=(None,None), size=(Window.width * 0.3, 50),pos_hint={'x': 0.35, 'center_y': 0.2})
+        left_arrow_button = MDIconButton(icon="arrow-left", md_bg_color=(1,1,1),pos_hint={'x': 0.375, 'center_y': 0.2})
         left_arrow_button.bind(on_press=self.scroll_previous_chord)  
-        right_arrow_button = MDIconButton(icon="arrow-right", md_bg_color=(1,1,1),pos_hint={'x': 0.555, 'center_y': 0.8})
+        right_arrow_button = MDIconButton(icon="arrow-right", md_bg_color=(1,1,1),pos_hint={'x': 0.555, 'center_y': 0.2})
         right_arrow_button.bind(on_press=self.scroll_next_chord)  
 
         '''Here is the layout for the buttons at the bottom.'''
@@ -336,22 +371,22 @@ class MyApp(MDApp):
         button_layout.add_widget(Widget())  # Empty widget to take up space
 
         '''Toggle button for seeing overlapping shapes'''
-        toggle_button = MDFloatingActionButton(icon="layers",md_bg_color=(0.2,0.2,0.2))
+        toggle_button = MDFloatingActionButton(icon="layers",md_bg_color=(0.306, 0.765, 0.965, 1))
         toggle_button.bind(on_press=self.toggle_overlay_mode)
         button_layout.add_widget(toggle_button)
         
-        self.record_button = MDFloatingActionButton(icon="microphone", md_bg_color=(0.2,0.2,0.2))
+        self.record_button = MDFloatingActionButton(icon="microphone", md_bg_color=(0.306, 0.765, 0.965, 1))
         self.record_button.bind(on_press=self.record_audio)
         button_layout.add_widget(self.record_button)
 
         '''Clears all shapes'''
-        clear_button = MDFloatingActionButton(icon="delete", md_bg_color=(0.2,0.2,0.2))
+        clear_button = MDFloatingActionButton(icon="delete", md_bg_color=(0.306, 0.765, 0.965, 1))
         clear_button.bind(on_press=self.clear_patterns)
         button_layout.add_widget(clear_button)
          # Empty widget to take up space
 
         '''Add folder for loading song'''
-        folder_button = MDFloatingActionButton(icon='folder', md_bg_color=(0.2,0.2,0.2))
+        folder_button = MDFloatingActionButton(icon='folder', md_bg_color=(0.306, 0.765, 0.965, 1))
         button_layout.add_widget(folder_button)
         folder_button.bind(on_press= self.load_song)
         button_layout.add_widget(Widget()) 
@@ -360,6 +395,7 @@ class MyApp(MDApp):
         self.header.add_widget(header_label)
         self.header.add_widget(self.menu_button)
         self.main_layout.add_widget(self.header)
+        self.main_layout.add_widget(self.circle_type_label)
         
         self.main_layout.add_widget(self.chord_circle)
         
@@ -453,8 +489,18 @@ class MyApp(MDApp):
 
     def handle_selection(self, selection):
         if selection:
+            if self.overlay_mode == False:
+                self.chord_circle.chords_history = []
+                self.chord_history = []
+            self.chord_circle.overlay_enabled = True
             filepath = selection[0]
-            print(f"selected file is: {filepath}")
-
+            chord_progression = self.recorder.classifier.analyze_chord_progression(filepath)
+            for chord in chord_progression:
+                notes = self.recorder.classifier.get_notes_for_chord(chord)
+                self.chord = notes
+                self.chord_name.text = chord_progression[-1]
+                self.chord_circle.update_chord(self.chord)
+            self.chord_circle.overlay_enabled = False
+            
 if __name__ == '__main__':
     app = MyApp().run()

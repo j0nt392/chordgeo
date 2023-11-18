@@ -10,19 +10,6 @@ from sklearn.metrics import accuracy_score
 import joblib
 
 
-def butter_highpass(cutoff, fs, order=5):
-    nyq = 0.5 * fs
-    normal_cutoff = cutoff / nyq
-    b, a = butter(order, normal_cutoff, btype='high', analog=False)
-    return b, a
-
-def highpass_filter(y, sr, cutoff=100, order=2):
-    nyquist = 0.5 * sr
-    norm_cutoff = cutoff / nyquist
-    sos = scipy.signal.butter(order, norm_cutoff, btype='highpass', analog=False, output='sos')
-    return scipy.signal.sosfilt(sos, y)
-
-
 # Define a function to extract features from an audio file
 def extract_features(audio_file):
     # Load the audio file

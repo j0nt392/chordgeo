@@ -84,23 +84,23 @@ class AudioStream(object):
         # Decompose the audio signal into harmonic and percussive components
         harmonic, percussive = librosa.effects.hpss(audio_file)
         
-        vqt = librosa.vqt(harmonic, sr=fs)
+        #vqt = librosa.vqt(harmonic, sr=fs)
 
         # Compute the constant-Q transform (CQT)
         # Here, we assume that fmin is C1, which is a common choice. You may change this as needed.
-        chroma = librosa.feature.chroma_cqt(C=vqt)
+        C = librosa.cqt(y=harmonic, sr=fs, fmin=librosa.note_to_hz('C1'), hop_length=128, n_bins=84)
 
         # Convert the complex CQT output into magnitude, which represents the energy at each CQT bin
         # Summing across the time axis gives us the aggregate energy for each pitch bin
-        pitch_sum = np.abs(chroma).sum(axis=1)
+        pitch_sum = np.abs(C).sum(axis=1)
 
         # Define the desired dimensionality (e.g., 84)
         desired_dimension = 84
 
         # Zero-pad the pitch_sum to the desired dimensionality
-        padded_pitch_sum = np.pad(pitch_sum, (0, desired_dimension - len(pitch_sum)), mode='constant')
+        #padded_pitch_sum = np.pad(pitch_sum, (0, desired_dimension - len(pitch_sum)), mode='constant')
 
-        return padded_pitch_sum
+        return pitch_sum
         
         #return pitch_sum
     
