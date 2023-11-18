@@ -14,7 +14,7 @@ from kivy.core.text import LabelBase
 
 # Registering the custom font (make sure the font file is in your app directory)
 LabelBase.register(name='Roboto', 
-                   fn_regular='roboto\Roboto-BoldItalic.ttf')
+                   fn_regular='Lato\Lato-Italic.ttf')
 
 from plyer import filechooser 
 import pyaudio
@@ -263,8 +263,27 @@ class ChordCircle(Widget):
         self.draw_chr_circle()
 
     def draw_chr_circle(self):
-        # Define the notes and their positions
         self.canvas.clear()
+
+        color_scheme = {
+            'C, E, G': (1, 0, 0),          # Red
+            'Db, Ab, F': (1, 0.5, 0),  # Orange-Red
+            'D, A, Gb': (1, 1, 0),          # Yellow
+            'Eb, Bb, G': (0.5, 1, 0),       # Yellow-Green
+            'E, B, Ab': (0, 1, 0),          # Green
+            'F, A, C': (0, 1, 1),          # Cyan
+            'Gb, Db, Bb': (0, 0.5, 1),       # Light Blue
+            'G, B, D': (0, 0, 1),          # Blue
+            'Ab, Eb, C': (0.5, 0, 1),       # Purple
+            'A, Db, E': (1, 0, 1),          # Magenta
+            'Bb, D, F': (1, 0, 0.5),       # Pink
+            'B, Gb, Eb': (1, 0.5, 0.5),      # Salmon
+            'D, F, A': (1, 0.5, 0),
+            'A, C, E': (1, 1, 0),
+            'B, D, F': (0, 1, 1),
+            'E, G, B': (1, 0, 0.5)
+        }
+        
         notes = []
         if self.circle_type == 'chromatic_circle':
             notes = ['Eb', 'D', 'Db', 'C', 'B', 'Bb','A', 'Ab', 'G', 'Gb', 'F', 'E']
@@ -281,23 +300,28 @@ class ChordCircle(Widget):
         with self.canvas:
             Color(0.5, 0.5, 0.5)
             line_width = 1.05  # Thicker line for the most recent chord
-
+            print(self.chords_history)
             Line(circle=(self.center_x, self.center_y, self.radius), width=line_width)
             #for i, note in enumerate(notes):
                 #Line(points=[x[i], y[i], x[(i+1) % num_notes], y[(i+1) % num_notes]])
 
             for idx, chord in enumerate(self.chords_history):
+                stringified = ', '.join(chord)
                 # Check if the current chord is the last one (most recent) in the history
                 if idx == len(self.chords_history) - 1 and self.toggle == False:  # Most recent chord
-                    Color(0.5, 0.5, 0.5)
-                
+                    if len(chord) > 0:
+                        # for colorwheel Color(*color_scheme[stringified])
+                        Color(0.5, 0.5, 0.5)
+
                 # Self.Toggle checks if you have scrolled 
                 elif self.toggle == True and chord == self.toggled_chord:
                     highlighted_chord_idx = idx
                     continue
                     
                 else:
-                    Color(0.5, 0.5, 0.5)
+                    if len(chord) > 0:
+                        #Color(*color_scheme[stringified])
+                        Color(0.5,0.5,0.5)
                 for i in range(len(chord)):
                     start_note = chord[i]
                     end_note = chord[(i+1) % len(chord)]
@@ -389,8 +413,12 @@ class MyApp(MDApp):
         folder_button = MDFloatingActionButton(icon='folder', md_bg_color=(0.306, 0.765, 0.965, 1))
         button_layout.add_widget(folder_button)
         folder_button.bind(on_press= self.load_song)
+
+        input_button = MDFloatingActionButton(icon='keyboard', md_bg_color=(0.306, 0.765, 0.965, 1))
+        button_layout.add_widget(input_button)
+        input_button.bind(on_press= self.input_chords)
         button_layout.add_widget(Widget()) 
-        
+
         '''Add everything to main layout'''
         self.header.add_widget(header_label)
         self.header.add_widget(self.menu_button)
@@ -436,6 +464,7 @@ class MyApp(MDApp):
 
     def circletype_callback(self, instance, c):
         self.chord_circle.circle_type = c
+        self.circle_type_label.text = c
         self.chord_circle.draw_chr_circle()
 
     def scroll_previous_chord(self, instance):
@@ -501,6 +530,21 @@ class MyApp(MDApp):
                 self.chord_name.text = chord_progression[-1]
                 self.chord_circle.update_chord(self.chord)
             self.chord_circle.overlay_enabled = False
-            
+
+    def input_chords(self, instance):
+        self.chord_circle.overlay_enabled = True
+        self.chord_circle.update_chord(['A', 'Db', 'F'])  # A Augmented
+        self.chord_circle.update_chord(['Bb', 'D', 'Gb'])  # Bb Augmented
+        self.chord_circle.update_chord(['B', 'Eb', 'G'])  # B Augmented
+        self.chord_circle.update_chord(['C', 'E', 'Ab'])  # C Augmented
+        self.chord_circle.update_chord(['Db', 'F', 'A'])  # Db Augmented
+        self.chord_circle.update_chord(['D', 'Gb', 'Bb'])  # D Augmented
+        self.chord_circle.update_chord(['Eb', 'G', 'B'])  # Eb Augmented
+        self.chord_circle.update_chord(['E', 'Ab', 'C'])  # E Augmented
+        self.chord_circle.update_chord(['F', 'A', 'Db'])  # F Augmented
+        self.chord_circle.update_chord(['Gb', 'Bb', 'D'])  # Gb Augmented
+        self.chord_circle.update_chord(['G', 'B', 'Eb'])  # G Augmented
+        self.chord_circle.update_chord(['Ab', 'C', 'E'])  # Ab Augmented
+
 if __name__ == '__main__':
     app = MyApp().run()
