@@ -1,3 +1,5 @@
+import pygame
+
 from kivy.app import App
 from kivymd.app import MDApp
 from kivymd.uix.button import MDRoundFlatButton, MDFloatingActionButton
@@ -14,7 +16,7 @@ from kivy.core.text import LabelBase
 
 # Registering the custom font (make sure the font file is in your app directory)
 LabelBase.register(name='Roboto', 
-                   fn_regular='Lato\Lato-Italic.ttf')
+                   fn_regular='Lato\Lato-LightItalic.ttf')
 
 from plyer import filechooser 
 import pyaudio
@@ -44,6 +46,59 @@ os.environ["KIVY_NO_CONSOLELOG"] = "1"
 
 # # Optional: Disable window resizing
 # Window.resizable = True
+
+class AudioPlayer():
+    def __init__(self, audio_path):
+        self.audio_path = audio_path
+        pygame.mixer.init()
+        self.track = pygame.mixer.Sound(audio_path)
+    
+    def play(self):
+        self.track.play()
+
+    def stop(self):
+        self.track.stop()
+
+    def fast_forward(self):
+        pass
+
+    def rewind(self):
+        pass
+
+class WaveformWidget(Widget):
+    def __init__(self, audio_path, **kwargs):
+        super(WaveformWidget, self).__init__(**kwargs)
+        self.audio_path = audio_path
+        self.size_hint = (0.8, 0.2)  # Occupy 80% width and 20% height of the parent
+        self.pos_hint = {'center_x': 0.5, 'center_y': 0.5}  #
+        self.waveform_points = self.waveform_coordinates()
+        self.draw_waveform()
+
+    def draw_waveform(self):
+        with self.canvas:
+            Color(0.2,0.2,0.2)
+            Line(points=self.waveform_points)
+            
+    def waveform_coordinates(self):
+        y, sr = librosa.load(self.audio_path)
+        waveform = librosa.feature.melspectrogram(y=y, sr=sr)
+        waveform = np.mean(waveform, axis=0)
+
+        max_height = self.height
+        points = []
+        waveform_width = self.width
+        waveform_height = self.height
+        horizontal_offset = (Window.width - waveform_width) / 2
+        vertical_offset = max_height 
+        points = []
+        for i, val in enumerate(waveform):
+            # Apply horizontal offset to x
+            x = i * (waveform_width / len(waveform)) + horizontal_offset
+            # Center y within the widget
+            y = (val / np.max(waveform)) * max_height / 2 + vertical_offset + 20
+            points.extend([x, y])
+            
+        return points
 
 class AudioStream(object):
     def __init__(self, chord_circle, label, history):
@@ -113,8 +168,7 @@ class AudioStream(object):
             self.analysis_thread = threading.Thread(target=self.analyze_buffer)
             self.audio_thread.start()
             self.analysis_thread.start()
-
-    
+   
 class Chord_preprocessing():
     def __init__(self):
         pass
@@ -208,9 +262,7 @@ class Chord_classifier():
 
     def analyze_chord_progression(self, audio_file, buffer_length=1, hop_length=0.2):
         # Load the audio file
-        print("reached analyzed")
         y, sr = librosa.load(audio_file, sr=None)
-        print("load succesful")
         # Calculate the number of samples per buffer
         buffer_samples = int(buffer_length * sr)
         hop_samples = int(hop_length * sr)
@@ -221,14 +273,12 @@ class Chord_classifier():
             # Make sure we don't go past the end of the audio file
             if end <= len(y):
                 buffer = y[start:end]
-                print("got through the loop")
                 # Predict the chord for this buffer
                 chord = self.predict_new_chord(buffer, sr)
                 chords.append(chord)
             else:
                 break  # We've reached the end of the audio
         # Return the list of chords
-        print(chords)
         return chords
 
 class ChordCircle(Widget):
@@ -285,10 +335,10 @@ class ChordCircle(Widget):
         }
         
         notes = []
-        if self.circle_type == 'chromatic_circle':
+        if self.circle_type == 'Chromatic circle':
             notes = ['Eb', 'D', 'Db', 'C', 'B', 'Bb','A', 'Ab', 'G', 'Gb', 'F', 'E']
 
-        elif self.circle_type == 'circle_of_fifths':
+        elif self.circle_type == 'Circle of fifths':
             notes = ['Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'Gb', 'Db', 'Ab']
 
         num_notes = len(notes)
@@ -360,7 +410,7 @@ class MyApp(MDApp):
         self.overlay_mode = False
         self.recorded_audio = None  # To store the recorded audio data
         self.dropdown_visible = False
-        Window.clearcolor = (0.196, 0.196, 0.196, 1)
+        #Window.clearcolor = (0.196, 0.196, 0.196, 1)
         # Create the main layout
         self.main_layout = FloatLayout()
 
@@ -384,40 +434,40 @@ class MyApp(MDApp):
         
         '''Chord-name label and arrows to scroll chords.'''
         #self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
-        self.chord_name = Label(text='Chromatic', color="black", size_hint=(None,None), size=(Window.width * 0.3, 50),pos_hint={'x': 0.35, 'center_y': 0.2})
-        left_arrow_button = MDIconButton(icon="arrow-left", md_bg_color=(1,1,1),pos_hint={'x': 0.375, 'center_y': 0.2})
-        left_arrow_button.bind(on_press=self.scroll_previous_chord)  
-        right_arrow_button = MDIconButton(icon="arrow-right", md_bg_color=(1,1,1),pos_hint={'x': 0.555, 'center_y': 0.2})
-        right_arrow_button.bind(on_press=self.scroll_next_chord)  
+        self.chord_name = Label(text='Chords', color="black", size_hint=(None,None), size=(Window.width * 0.3, 50),pos_hint={'x': 0.35, 'center_y': 0.2})
+        self.left_arrow_button = MDIconButton(icon="arrow-left", md_bg_color=(1,1,1),pos_hint={'x': 0.375, 'center_y': 0.2})
+        self.left_arrow_button.bind(on_press=self.scroll_previous_chord)  
+        self.right_arrow_button = MDIconButton(icon="arrow-right", md_bg_color=(1,1,1),pos_hint={'x': 0.555, 'center_y': 0.2})
+        self.right_arrow_button.bind(on_press=self.scroll_next_chord)  
 
         '''Here is the layout for the buttons at the bottom.'''
-        button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=50, spacing=10, padding=10)
-        button_layout.add_widget(Widget())  # Empty widget to take up space
+        self.button_layout = BoxLayout(orientation='horizontal', size_hint_y=None, height=80, spacing=10, padding=20)
+        self.button_layout.add_widget(Widget())  # Empty widget to take up space
 
         '''Toggle button for seeing overlapping shapes'''
-        toggle_button = MDFloatingActionButton(icon="layers",md_bg_color=(0.306, 0.765, 0.965, 1))
+        toggle_button = MDFloatingActionButton(icon="layers",md_bg_color=(0.2, 0.2, 0.2))
         toggle_button.bind(on_press=self.toggle_overlay_mode)
-        button_layout.add_widget(toggle_button)
-        
-        self.record_button = MDFloatingActionButton(icon="microphone", md_bg_color=(0.306, 0.765, 0.965, 1))
-        self.record_button.bind(on_press=self.record_audio)
-        button_layout.add_widget(self.record_button)
+        self.button_layout.add_widget(toggle_button)
 
         '''Clears all shapes'''
-        clear_button = MDFloatingActionButton(icon="delete", md_bg_color=(0.306, 0.765, 0.965, 1))
+        clear_button = MDFloatingActionButton(icon="delete", md_bg_color=(0.2,0.2,0.2))
         clear_button.bind(on_press=self.clear_patterns)
-        button_layout.add_widget(clear_button)
-         # Empty widget to take up space
+        self.button_layout.add_widget(clear_button)
+        
+        '''Record button'''
+        self.record_button = MDFloatingActionButton(icon="microphone", size_hint=(0.4,2), type='small', md_bg_color=(0.2,0.2,0.2))
+        self.record_button.bind(on_press=self.record_audio)
+        self.button_layout.add_widget(self.record_button)
 
         '''Add folder for loading song'''
-        folder_button = MDFloatingActionButton(icon='folder', md_bg_color=(0.306, 0.765, 0.965, 1))
-        button_layout.add_widget(folder_button)
+        folder_button = MDFloatingActionButton(icon='folder', size_hint=(None, None), size=("29dp", "20dp"), md_bg_color=(0.2,0.2,0.2))
+        self.button_layout.add_widget(folder_button)
         folder_button.bind(on_press= self.load_song)
 
-        input_button = MDFloatingActionButton(icon='keyboard', md_bg_color=(0.306, 0.765, 0.965, 1))
-        button_layout.add_widget(input_button)
+        input_button = MDFloatingActionButton(icon='keyboard', md_bg_color=(0.2,0.2,0.2))
+        self.button_layout.add_widget(input_button)
         input_button.bind(on_press= self.input_chords)
-        button_layout.add_widget(Widget()) 
+        self.button_layout.add_widget(Widget()) 
 
         '''Add everything to main layout'''
         self.header.add_widget(header_label)
@@ -427,12 +477,12 @@ class MyApp(MDApp):
         
         self.main_layout.add_widget(self.chord_circle)
         
-        self.main_layout.add_widget(left_arrow_button)
+        self.main_layout.add_widget(self.left_arrow_button)
         self.main_layout.add_widget(self.chord_name)
-        self.main_layout.add_widget(right_arrow_button)
+        self.main_layout.add_widget(self.right_arrow_button)
         self.main_layout.add_widget(self.dropdown)
         #self.main_layout.add_widget(self.chord_info)
-        self.main_layout.add_widget(button_layout)  
+        self.main_layout.add_widget(self.button_layout)  
         
         # Create an audiorecorder that streams audio
         self.recorder = AudioStream(chord_circle=self.chord_circle, label=self.chord_name, history=self.chord_history)
@@ -440,8 +490,8 @@ class MyApp(MDApp):
 
     def toggle_dropdown(self, instance):
         options = {
-            'Chromatic circle': 'chromatic_circle',
-            'Circle of fifths': 'circle_of_fifths',
+            'Chromatic circle': 'Chromatic circle',
+            'Circle of fifths': 'Circle of fifths',
             'Coltrane circle': 'coltrane_circle',
             'Settings' : 'settings'
         }
@@ -530,6 +580,16 @@ class MyApp(MDApp):
                 self.chord_name.text = chord_progression[-1]
                 self.chord_circle.update_chord(self.chord)
             self.chord_circle.overlay_enabled = False
+
+            waveform_widget = WaveformWidget(filepath)
+            self.main_layout.add_widget(waveform_widget)
+            self.right_arrow_button.opacity = 0
+            self.left_arrow_button.opacity = 0
+            self.chord_name.opacity = 0
+
+            audio_player = AudioPlayer(filepath)
+            audio_player.play()
+
 
     def input_chords(self, instance):
         self.chord_circle.overlay_enabled = True
