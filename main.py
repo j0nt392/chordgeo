@@ -1,8 +1,6 @@
 import pygame
-
-from kivy.app import App
 from kivymd.app import MDApp
-from kivymd.uix.button import MDRoundFlatButton, MDFloatingActionButton
+from kivymd.uix.button import MDFloatingActionButton
 from kivymd.uix.boxlayout import MDBoxLayout
 from kivymd.uix.floatlayout import FloatLayout
 from kivymd.uix.button import MDIconButton
@@ -22,7 +20,6 @@ from plyer import filechooser
 import pyaudio
 import struct
 from scipy.fftpack import fft
-import time 
 import threading
 
 import librosa
@@ -32,14 +29,8 @@ import joblib
 from kivy.clock import Clock
 import sounddevice as sd
 import numpy as np
-import wave
-import warnings
 
-import matplotlib as plt
-from sklearn.tree import plot_tree
-
-import os 
-os.environ["KIVY_NO_CONSOLELOG"] = "1"
+#from sklearn.tree import plot_tree
 
 # # Set the window size
 # Window.size = (360, 640)  # width x height
@@ -106,13 +97,12 @@ class AudioStream(object):
         self.label = label
         self.chord = None
         self.chord_circle = chord_circle
-        # stream constants
         self.CHUNK = 1024
         self.FORMAT = pyaudio.paFloat32
         self.CHANNELS = 1
         self.RATE = 44100
         self.streaming = False
-        self.classifier = Chord_classifier()  # Assuming Chord_classifier is defined elsewhere
+        self.classifier = Chord_classifier()  
         self.p = pyaudio.PyAudio()
         self.notes = []
         self.audio_buffer = []
@@ -126,7 +116,6 @@ class AudioStream(object):
                             frames_per_buffer=self.CHUNK)
 
     def stream_audio(self):
-        print('stream started')
 
         while self.streaming:
             data = self.stream.read(self.CHUNK)
@@ -141,7 +130,6 @@ class AudioStream(object):
                 with self.buffer_lock:  # Lock for thread-safe buffer access
                     audio_signal = np.array(self.audio_buffer[:self.buffer_length], dtype=np.float32)
                     self.audio_buffer = self.audio_buffer[self.buffer_length:]
-
                 self.update_label(audio_signal)
 
     def update_label(self, pitch_sum):
@@ -156,7 +144,6 @@ class AudioStream(object):
 
     def toggle_stream(self):
         if self.streaming:
-            print('stream closed')
             self.streaming = False
             if self.audio_thread.is_alive():
                 self.audio_thread.join()
@@ -350,7 +337,6 @@ class ChordCircle(Widget):
         with self.canvas:
             Color(0.5, 0.5, 0.5)
             line_width = 1.05  # Thicker line for the most recent chord
-            print(self.chords_history)
             Line(circle=(self.center_x, self.center_y, self.radius), width=line_width)
             #for i, note in enumerate(notes):
                 #Line(points=[x[i], y[i], x[(i+1) % num_notes], y[(i+1) % num_notes]])
@@ -394,11 +380,17 @@ class ChordCircle(Widget):
 
             for i, note in enumerate(notes):
                 # Drawing small circles and text labels for notes
-                Color(1, 1, 1)
-                Ellipse(pos=(x[i]-10, y[i]-10), size=(20, 20))
-                Color(0.5, 0.5, 0.5)
-                # Add labels here if needed using Kivy's Label widget
-                note_label = Label(text=note, center=(round(x[i]), round(y[i])), font_size=15, color=(0, 0, 0, 1))
+                for chord in self.chords_history:
+                    if note in chord:
+                        Color(0, 0, 0)
+                        Ellipse(pos=(x[i]-10, y[i]-10), size=(20, 20))
+                        note_label = Label(text=note, center=(round(x[i]), round(y[i])), font_size=15, color=(0, 1, 0, 1))
+
+                    else:
+                        Color(0, 0, 0)
+                        Ellipse(pos=(x[i]-10, y[i]-10), size=(20, 20))
+                        note_label = Label(text=note, center=(round(x[i]), round(y[i])), font_size=15, color=(1, 1, 1, 1))
+
                 self.add_widget(note_label)
 
 class MyApp(MDApp):
@@ -410,7 +402,7 @@ class MyApp(MDApp):
         self.overlay_mode = False
         self.recorded_audio = None  # To store the recorded audio data
         self.dropdown_visible = False
-        #Window.clearcolor = (0.196, 0.196, 0.196, 1)
+        self.mode = False
         # Create the main layout
         self.main_layout = FloatLayout()
 
@@ -430,10 +422,9 @@ class MyApp(MDApp):
         self.circle_type_label = Label(text='Chromatic circle', font_size="28sp", font_name="Roboto", color="black", size_hint=(None,None), size=(Window.width * 0.3, 80),pos_hint={'x': 0.35, 'center_y': 0.8})
         
         '''Chord circle'''
-        self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='chromatic_circle', size_hint=(1, 0.3))
+        self.chord_circle = ChordCircle(chord=self.chord, overlay_mode=self.overlay_mode, circle_type='Chromatic circle', size_hint=(1, 0.3))
         
         '''Chord-name label and arrows to scroll chords.'''
-        #self.chord_info = BoxLayout(orientation="horizontal",size_hint_y=None, height=120)
         self.chord_name = Label(text='Chords', color="black", size_hint=(None,None), size=(Window.width * 0.3, 50),pos_hint={'x': 0.35, 'center_y': 0.2})
         self.left_arrow_button = MDIconButton(icon="arrow-left", md_bg_color=(1,1,1),pos_hint={'x': 0.375, 'center_y': 0.2})
         self.left_arrow_button.bind(on_press=self.scroll_previous_chord)  
@@ -455,18 +446,18 @@ class MyApp(MDApp):
         self.button_layout.add_widget(clear_button)
         
         '''Record button'''
-        self.record_button = MDFloatingActionButton(icon="microphone", size_hint=(0.4,2), type='small', md_bg_color=(0.2,0.2,0.2))
+        self.record_button = MDFloatingActionButton(icon="microphone", size_hint=(1,1), type='small', md_bg_color=(0.2,0.2,0.2))
         self.record_button.bind(on_press=self.record_audio)
         self.button_layout.add_widget(self.record_button)
 
         '''Add folder for loading song'''
-        folder_button = MDFloatingActionButton(icon='folder', size_hint=(None, None), size=("29dp", "20dp"), md_bg_color=(0.2,0.2,0.2))
+        folder_button = MDFloatingActionButton(icon='folder-music-outline', size_hint=(None, None), size=("29dp", "20dp"), md_bg_color=(0.2,0.2,0.2))
         self.button_layout.add_widget(folder_button)
         folder_button.bind(on_press= self.load_song)
 
-        input_button = MDFloatingActionButton(icon='keyboard', md_bg_color=(0.2,0.2,0.2))
-        self.button_layout.add_widget(input_button)
-        input_button.bind(on_press= self.input_chords)
+        self.input_button = MDFloatingActionButton(icon='music-note', md_bg_color=(0.2,0.2,0.2))
+        self.button_layout.add_widget(self.input_button)
+        self.input_button.bind(on_press= self.input_chords)
         self.button_layout.add_widget(Widget()) 
 
         '''Add everything to main layout'''
@@ -481,10 +472,8 @@ class MyApp(MDApp):
         self.main_layout.add_widget(self.chord_name)
         self.main_layout.add_widget(self.right_arrow_button)
         self.main_layout.add_widget(self.dropdown)
-        #self.main_layout.add_widget(self.chord_info)
         self.main_layout.add_widget(self.button_layout)  
         
-        # Create an audiorecorder that streams audio
         self.recorder = AudioStream(chord_circle=self.chord_circle, label=self.chord_name, history=self.chord_history)
         return self.main_layout
 
@@ -590,21 +579,11 @@ class MyApp(MDApp):
             audio_player = AudioPlayer(filepath)
             audio_player.play()
 
-
     def input_chords(self, instance):
-        self.chord_circle.overlay_enabled = True
-        self.chord_circle.update_chord(['A', 'Db', 'F'])  # A Augmented
-        self.chord_circle.update_chord(['Bb', 'D', 'Gb'])  # Bb Augmented
-        self.chord_circle.update_chord(['B', 'Eb', 'G'])  # B Augmented
-        self.chord_circle.update_chord(['C', 'E', 'Ab'])  # C Augmented
-        self.chord_circle.update_chord(['Db', 'F', 'A'])  # Db Augmented
-        self.chord_circle.update_chord(['D', 'Gb', 'Bb'])  # D Augmented
-        self.chord_circle.update_chord(['Eb', 'G', 'B'])  # Eb Augmented
-        self.chord_circle.update_chord(['E', 'Ab', 'C'])  # E Augmented
-        self.chord_circle.update_chord(['F', 'A', 'Db'])  # F Augmented
-        self.chord_circle.update_chord(['Gb', 'Bb', 'D'])  # Gb Augmented
-        self.chord_circle.update_chord(['G', 'B', 'Eb'])  # G Augmented
-        self.chord_circle.update_chord(['Ab', 'C', 'E'])  # Ab Augmented
+        if self.mode:
+            self.input_button.icon = 'music-box-multiple'
+        else:
+            self.input_button.icon = 'music-note'
 
 if __name__ == '__main__':
     app = MyApp().run()

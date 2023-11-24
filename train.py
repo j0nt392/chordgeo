@@ -1,53 +1,43 @@
-import os
-import librosa
-import numpy as np
-import scipy.signal
-from scipy.signal import butter, lfilter, sosfilt
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score
+from sklearn.metrics import accuracy_score, confusion_matrix
 import joblib
+import matplotlib.pyplot as plt
+import seaborn as sns
+import psycopg2
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
-# Define a function to extract features from an audio file
-def extract_features(audio_file):
-    # Load the audio file
-    chord, fs = librosa.load(audio_file, sr=None)
-    
-    # Decompose the audio signal into harmonic and percussive components
-    harmonic, percussive = librosa.effects.hpss(chord)
-    
-    # Compute the constant-Q transform (CQT)
-    # Here, we assume that fmin is C1, which is a common choice. You may change this as needed.
-    C = librosa.cqt(y=harmonic, sr=fs, fmin=librosa.note_to_hz('C1'))
-    
-    # Convert the complex CQT output into magnitude, which represents the energy at each CQT bin
-    # Summing across the time axis gives us the aggregate energy for each pitch bin
-    pitch_sum = np.abs(C).sum(axis=1)
-    
-    return pitch_sum
+host = "localhost"
+database = "chordsums"
+user = os.environ.get("USER")
+password = os.environ.get("SECRET_KEY")
 
+conn = psycopg2.connect(
+    host=host,
+    database=database,
+    user=user,
+    password=password
+)
 
-# Define the paths to your "train" and "test" directories
-train_data_dir = "Training"
-test_data_dir = "Test"
-
-# Initialize empty lists to store features and labels
+#features is pitch_sum, labels are chord_names.
 features = []
 labels = []
 
-# Iterate through the training data
-for root, dirs, files in os.walk(train_data_dir):
-    for file in files:
-        if file.endswith(".wav"):
-            # Extract features from the audio file
-            feature_vector = extract_features(os.path.join(root, file))
-            # Append the feature vector to the features list
-            features.append(feature_vector)
-            # Extract the chord label from the subfolder name
-            label = os.path.basename(os.path.dirname(os.path.join(root, file)))
-            labels.append(label)
+cursor = conn.cursor()
+query = "SELECT * FROM pitch_sums"
+cursor.execute(query)
+rows = cursor.fetchall()
+
+for row in rows:
+    features.append(row[1])
+    labels.append(row[2])
+
+cursor.close()
+conn.close()
 
 # Encode chord labels to numerical values
 label_encoder = LabelEncoder()
@@ -70,12 +60,27 @@ predicted_labels = label_encoder.inverse_transform(y_pred)
 accuracy = accuracy_score(y_test, y_pred)
 print(f"Accuracy: {accuracy * 100:.2f}%")
 
+
 # Print actual chord labels and their corresponding notes
 actual_chords = label_encoder.inverse_transform(y_test)
 for actual_chord, predicted_chord in zip(actual_chords, predicted_labels):
     print(f"Actual Chord: {actual_chord}, Predicted Chord: {predicted_chord}")
 
+
+class_names = label_encoder.classes_
+
+cm = confusion_matrix(y_test, y_pred)
+plt.figure(figsize=(8, 6))
+sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+            xticklabels=class_names, yticklabels=class_names)
+plt.xlabel('Predicted')
+plt.ylabel('Actual')
+plt.title('Confusion Matrix')
+plt.show()
+
 #dumps the model into a file.
 joblib.dump(model, 'chord_identifier.pkl')
 joblib.dump(label_encoder, 'label_encoder.pkl')
+
+
 
